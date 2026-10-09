@@ -30,7 +30,7 @@ func Load() (Config, error) {
 func required(key string) (string, error) {
 	value := os.Getenv(key)
 	if value == "" {
-		return "", fmt.Errorf("variável de ambiente %s não definida", key)
+		return "", fmt.Errorf("environment variable %s not defined", key)
 	}
 	return value, nil
 }
