@@ -25,7 +25,7 @@ func (c *StartController) Handle(
         Text:   welcomeMessage(message.Username),
     }
 
-    return c.sender.Send(ctx, reply)
+    return c.sender.Send(ctx, message.ChatID, reply)
 }
 
 func welcomeMessage(username string) string {
