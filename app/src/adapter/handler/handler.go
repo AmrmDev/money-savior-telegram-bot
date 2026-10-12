@@ -38,6 +38,7 @@ func (h *Handler) Handle(
     case "/gastei":
         return h.expenseController.Handle(ctx, message)
 
+        //default value for unknown commands is the help handle
     default:
         return h.helpController.Handle(ctx, message)
     }
