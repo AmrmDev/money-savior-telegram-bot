@@ -12,7 +12,7 @@ type Config struct {
 
 func Load() (Config, error) {
 	token, err := required("TELEGRAM_BOT_TOKEN")
-	if err != nil  {
+	if err != nil {
 		return Config{}, err
 	}
 
@@ -23,7 +23,7 @@ func Load() (Config, error) {
 
 	return Config{
 		TelegramToken: token,
-		TableName: table,
+		TableName:     table,
 	}, nil
 }
 

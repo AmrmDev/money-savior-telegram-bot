@@ -2,48 +2,49 @@ package handler
 
 import (
 	"context"
+	"strings"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"money-savior-telegram-bot/app/src/adapter/controller"
 )
 
-type Message struct {
-	Command string
-}
-
 type Handler struct {
-	startController   *controller.StartController
-	expenseController *controller.ExpenseController
-	helpController    *controller.HelpController
+	startController *controller.StartController
+	helpController  *controller.HelpController
 }
 
 func NewHandler(
 	start *controller.StartController,
-	expense *controller.ExpenseController,
 	help *controller.HelpController,
 ) *Handler {
 	return &Handler{
-		startController:   start,
-		expenseController: expense,
-		helpController:    help,
+		startController: start,
+		helpController:  help,
 	}
 }
 
-func (h *Handler) Handle(
-	ctx context.Context,
-	message Message,
-) error {
+func (h *Handler) Handle(ctx context.Context, update tgbotapi.Update) error {
+	if update.Message == nil || update.Message.From == nil {
+		return nil
+	}
+
+	message := toMessage(update.Message)
+
 	switch message.Command {
-	case "/start":
+	case "start":
 		return h.startController.Handle(ctx, message)
-
-	case "/help":
-		return h.helpController.Handle(ctx, message)
-
-	case "/gastei":
-		return h.expenseController.Handle(ctx, message)
-
-		//default value for unknown commands is the help handle
 	default:
 		return h.helpController.Handle(ctx, message)
+	}
+}
+
+func toMessage(m *tgbotapi.Message) controller.Message {
+	return controller.Message{
+		ChatID:   m.Chat.ID,
+		UserID:   m.From.ID,
+		Username: m.From.UserName,
+		Command:  m.Command(),
+		Args:     strings.Fields(m.CommandArguments()),
 	}
 }
