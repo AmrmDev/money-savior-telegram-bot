@@ -38,7 +38,7 @@ func (h *Handler) Handle(ctx context.Context, update tgbotapi.Update) error {
 	case "start":
 		return h.startController.Handle(ctx, message)
 	case "gastei":
-		return &h.registerExpenseController.Handle(ctx, message)
+		return h.registerExpenseController.Handle(ctx, message)
 	default:
 		return h.helpController.Handle(ctx, message)
 	}

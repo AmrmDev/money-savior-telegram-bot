@@ -30,6 +30,7 @@ func main() {
 	h := handler.NewHandler(
 		controller.NewStartController(sender),
 		controller.NewHelpController(sender),
+		controller.NewRegisterExpenseController(sender),
 	)
 
 	updates := bot.GetUpdatesChan(tgbotapi.NewUpdate(0))
