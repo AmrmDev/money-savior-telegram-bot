@@ -7,4 +7,5 @@ var (
 	ErrInvalidCategory   = errors.New("invalid category")
 	ErrExpenseNotFound   = errors.New("expense not found")
 	ErrExpenseIDConflict = errors.New("expense id already exists")
+	ErrInvalidPeriod     = errors.New("invalid period")
 )
