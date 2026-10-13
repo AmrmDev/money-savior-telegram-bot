@@ -12,15 +12,18 @@ import (
 type Handler struct {
 	startController *controller.StartController
 	helpController  *controller.HelpController
+	registerExpenseController *controller.RegisterExpenseController
 }
 
 func NewHandler(
 	start *controller.StartController,
 	help *controller.HelpController,
+	register *controller.RegisterExpenseController,
 ) *Handler {
 	return &Handler{
 		startController: start,
 		helpController:  help,
+		registerExpenseController: register,
 	}
 }
 
@@ -34,6 +37,8 @@ func (h *Handler) Handle(ctx context.Context, update tgbotapi.Update) error {
 	switch message.Command {
 	case "start":
 		return h.startController.Handle(ctx, message)
+	case "gastei":
+		return &h.registerExpenseController.Handle(ctx, message)
 	default:
 		return h.helpController.Handle(ctx, message)
 	}

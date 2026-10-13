@@ -17,12 +17,12 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		log.Fatalf("Load config: %v", err)
 	}
 
 	bot, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
 	if err != nil {
-		log.Fatalf("create bot: %v", err)
+		log.Fatalf("Create bot: %v", err)
 	}
 
 	sender := infrahttp.NewTelegramSender(bot)
@@ -35,7 +35,7 @@ func main() {
 	updates := bot.GetUpdatesChan(tgbotapi.NewUpdate(0))
 	for update := range updates {
 		if err := h.Handle(ctx, update); err != nil {
-			log.Printf("handle update %d: %v", update.UpdateID, err)
+			log.Printf("New update received %d: %v", update.UpdateID, err)
 		}
 	}
 }
