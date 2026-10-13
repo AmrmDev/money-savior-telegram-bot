@@ -8,8 +8,12 @@ import (
 
 	"money-savior-telegram-bot/app/src/adapter/controller"
 	"money-savior-telegram-bot/app/src/adapter/handler"
+	"money-savior-telegram-bot/app/src/core/usecase"
+	infraaws "money-savior-telegram-bot/app/src/infra/aws"
+	"money-savior-telegram-bot/app/src/infra/aws/repository"
 	"money-savior-telegram-bot/app/src/infra/config"
 	infrahttp "money-savior-telegram-bot/app/src/infra/http"
+	"money-savior-telegram-bot/app/src/infra/id"
 )
 
 func main() {
@@ -17,26 +21,34 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Load config: %v", err)
+		log.Fatalf("error while loading config: %v", err)
 	}
 
 	bot, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
 	if err != nil {
-		log.Fatalf("Create bot: %v", err)
+		log.Fatalf("error while creating telegram bot: %v", err)
+	}
+
+	dynamoClient, err := infraaws.NewDynamoClient(ctx)
+	if err != nil {
+		log.Fatalf("error while creating dynamo client: %v", err)
 	}
 
 	sender := infrahttp.NewTelegramSender(bot)
+	expenseRepository := repository.NewExpenseRepository(dynamoClient, cfg.TableName)
+	idGenerator := id.NewExpenseIDGenerator()
+	registerExpense := usecase.NewRegisterExpense(expenseRepository, idGenerator)
 
 	h := handler.NewHandler(
 		controller.NewStartController(sender),
 		controller.NewHelpController(sender),
-		controller.NewRegisterExpenseController(sender),
+		controller.NewRegisterExpenseController(registerExpense, sender),
 	)
 
 	updates := bot.GetUpdatesChan(tgbotapi.NewUpdate(0))
 	for update := range updates {
 		if err := h.Handle(ctx, update); err != nil {
-			log.Printf("New update received %d: %v", update.UpdateID, err)
+			log.Printf("handle update %d: %v", update.UpdateID, err)
 		}
 	}
 }
