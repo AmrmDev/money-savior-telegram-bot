@@ -8,8 +8,10 @@ import (
 	"money-savior-telegram-bot/app/src/core/domain/exception"
 )
 
+const receiptDivider = "━━━━━━━━━━━━━━"
+
 func InvalidExpenseFormat() Reply {
-	return Reply{Text: "⚠️ Formato incorreto — use:\n/gastei <valor> <categoria> [método]\n\nExemplo:\n/gastei 21,90 uber pix"}
+	return Reply{Text: "⚠️ Formato incorreto — use:\n/gastei &lt;valor&gt; &lt;categoria&gt; [método]\n\nExemplo:\n/gastei 21,90 uber pix"}
 }
 
 func InvalidAmount() Reply {
@@ -17,14 +19,9 @@ func InvalidAmount() Reply {
 }
 
 func ExpenseRegistered(e domain.Expense) Reply {
-	method := e.Method
-	if method == "" {
-		method = "Não informado"
-	}
-
 	return Reply{Text: fmt.Sprintf(
-		"✅ Gasto registrado com sucesso!\n\n🆔 %s\n💰 %s\n📝 %s\n💳 %s",
-		e.ID, formatMoney(e.AmountCents), e.Category, method,
+		"Opa, gasto registrado! ✅\n\n📝 %s\n💰 %s",
+		e.Category, formatMoney(e.AmountCents),
 	)}
 }
 
