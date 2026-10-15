@@ -10,8 +10,8 @@ import (
 )
 
 type Handler struct {
-	startController *controller.StartController
-	helpController  *controller.HelpController
+	startController           *controller.StartController
+	helpController            *controller.HelpController
 	registerExpenseController *controller.RegisterExpenseController
 }
 
@@ -21,8 +21,8 @@ func NewHandler(
 	register *controller.RegisterExpenseController,
 ) *Handler {
 	return &Handler{
-		startController: start,
-		helpController:  help,
+		startController:           start,
+		helpController:            help,
 		registerExpenseController: register,
 	}
 }
