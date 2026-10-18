@@ -21,28 +21,31 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("error while loading config: %v", err)
+		log.Fatalf("load config: %v", err)
 	}
 
 	bot, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
 	if err != nil {
-		log.Fatalf("error while creating telegram bot: %v", err)
+		log.Fatalf("create bot: %v", err)
 	}
 
 	dynamoClient, err := infraaws.NewDynamoClient(ctx)
 	if err != nil {
-		log.Fatalf("error while creating dynamo client: %v", err)
+		log.Fatalf("create dynamo client: %v", err)
 	}
 
 	sender := infrahttp.NewTelegramSender(bot)
 	expenseRepository := repository.NewExpenseRepository(dynamoClient, cfg.TableName)
 	idGenerator := id.NewExpenseIDGenerator()
+
 	registerExpense := usecase.NewRegisterExpense(expenseRepository, idGenerator)
+	queryExpenses := usecase.NewQueryExpenses(expenseRepository)
 
 	h := handler.NewHandler(
 		controller.NewStartController(sender),
 		controller.NewHelpController(sender),
 		controller.NewRegisterExpenseController(registerExpense, sender),
+		controller.NewQueryExpensesController(queryExpenses, sender),
 	)
 
 	updates := bot.GetUpdatesChan(tgbotapi.NewUpdate(0))
