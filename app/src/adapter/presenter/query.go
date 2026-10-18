@@ -10,7 +10,10 @@ import (
 	"money-savior-telegram-bot/app/src/core/usecase"
 )
 
-const maxCategories = 5
+const (
+	maxCategories = 5
+	othersLabel   = "Outros"
+)
 
 func InvalidQueryFormat() Reply {
 	return Reply{Text: "⚠️ Período não reconhecido. Use:\n\n/consulta hoje\n/consulta ontem\n/consulta semana\n/consulta mes\n/consulta mes passado\n/consulta 01/10 15/10"}
@@ -32,10 +35,25 @@ func QuerySummary(s usecase.ExpensesSummary) Reply {
 		return Reply{Text: fmt.Sprintf("Nenhum gasto registrado (%s).", label)}
 	}
 
+	rows := groupCategories(s.Categories)
+
+	if len(rows) > 1 {
+		title := fmt.Sprintf("Gastos de %s", label)
+		subtitle := fmt.Sprintf("Total %s · %s", formatMoney(s.TotalCents), countLabel(s.Count))
+
+		if image, err := renderSummaryChart(title, subtitle, rows); err == nil {
+			return Reply{Text: fmt.Sprintf("📊 %s — %s", title, subtitle), Image: image}
+		}
+	}
+
+	return textSummary(label, s, rows)
+}
+
+func textSummary(label string, s usecase.ExpensesSummary, rows []usecase.CategoryTotal) Reply {
 	var b strings.Builder
 	fmt.Fprintf(&b, "📊 Gastos de %s\n\n", label)
 	fmt.Fprintf(&b, "💰 Total: %s (%s)\n\n", formatMoney(s.TotalCents), countLabel(s.Count))
-	for _, c := range groupCategories(s.Categories) {
+	for _, c := range rows {
 		fmt.Fprintf(&b, "🏷️ %s — %s\n", c.Category, formatMoney(c.TotalCents))
 	}
 
@@ -63,7 +81,7 @@ func groupCategories(categories []usecase.CategoryTotal) []usecase.CategoryTotal
 	}
 
 	grouped := append([]usecase.CategoryTotal{}, categories[:maxCategories]...)
-	others := usecase.CategoryTotal{Category: "Outros"}
+	others := usecase.CategoryTotal{Category: othersLabel}
 	for _, c := range categories[maxCategories:] {
 		others.TotalCents += c.TotalCents
 		others.Count += c.Count

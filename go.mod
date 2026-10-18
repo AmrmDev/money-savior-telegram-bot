@@ -1,6 +1,6 @@
 module money-savior-telegram-bot
 
-go 1.24
+go 1.26.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.3
@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.21.11
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.70.3
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
+	golang.org/x/image v0.47.0
 )
 
 require (
@@ -25,4 +26,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.3 // indirect
 	github.com/aws/smithy-go v1.28.5 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 )

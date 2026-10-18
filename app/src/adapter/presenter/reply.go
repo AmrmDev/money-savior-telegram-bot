@@ -1,5 +1,6 @@
 package presenter
 
 type Reply struct {
-	Text string
+	Text  string
+	Image []byte
 }
