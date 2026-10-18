@@ -40,7 +40,7 @@ func NewQueryExpensesController(queryExpenses QueryExpensesUseCase, sender Sende
 func (c *QueryExpensesController) Handle(ctx context.Context, message Message) error {
 	spec, err := parsePeriodSpec(message.Args)
 	if err != nil {
-		return c.sender.Send(ctx, message.ChatID, presenter.InvalidQueryFormat())
+		return reject(ctx, c.sender, message.ChatID, presenter.InvalidQueryFormat(), "invalid period format")
 	}
 
 	execCtx, cancel := context.WithTimeout(ctx, queryExpensesTimeout)
@@ -51,10 +51,7 @@ func (c *QueryExpensesController) Handle(ctx context.Context, message Message) e
 		Period: spec,
 	})
 	if err != nil {
-		if sendErr := c.sender.Send(ctx, message.ChatID, presenter.QueryExpensesError(err)); sendErr != nil {
-			return sendErr
-		}
-		return err
+		return respondError(ctx, c.sender, message.ChatID, presenter.QueryExpensesError(err), err)
 	}
 
 	return c.sender.Send(ctx, message.ChatID, presenter.QuerySummary(summary))
