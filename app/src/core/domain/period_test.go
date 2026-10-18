@@ -32,6 +32,8 @@ func TestResolvePeriod(t *testing.T) {
 		{"mês passado", morning, PeriodSpec{Kind: PeriodLastMonth}, utc(2026, 9, 1, 3), utc(2026, 10, 1, 3)},
 		{"mês passado em janeiro", january, PeriodSpec{Kind: PeriodLastMonth}, utc(2025, 12, 1, 3), utc(2026, 1, 1, 3)},
 		{"intervalo", morning, PeriodSpec{Kind: PeriodCustom, From: Date{2026, 10, 1}, To: Date{2026, 10, 15}}, utc(2026, 10, 1, 3), utc(2026, 10, 16, 3)},
+		{"intervalo sem ano usa o ano atual", morning, PeriodSpec{Kind: PeriodCustom, From: Date{0, 10, 1}, To: Date{0, 10, 15}}, utc(2026, 10, 1, 3), utc(2026, 10, 16, 3)},
+		{"o ano é o de Brasília", utc(2027, 1, 1, 1), PeriodSpec{Kind: PeriodCustom, From: Date{0, 12, 30}, To: Date{0, 12, 31}}, utc(2026, 12, 30, 3), utc(2027, 1, 1, 3)},
 	}
 
 	for _, tt := range tests {
@@ -66,5 +68,15 @@ func TestResolvePeriod_Invalid(t *testing.T) {
 				t.Errorf("expected ErrInvalidPeriod, got %v", err)
 			}
 		})
+	}
+
+}
+func TestPeriod_Days(t *testing.T) {
+	period := Period{Start: utc(2026, 10, 1, 3), End: utc(2026, 10, 14, 3)}
+
+	first, last := period.Days()
+
+	if first.Format("2006-01-02") != "2026-10-01" || last.Format("2006-01-02") != "2026-10-13" {
+		t.Errorf("unexpected days: %s to %s", first, last)
 	}
 }

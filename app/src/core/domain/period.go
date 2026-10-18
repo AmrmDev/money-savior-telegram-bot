@@ -54,8 +54,8 @@ func ResolvePeriod(spec PeriodSpec, now time.Time) (Period, error) {
 	case PeriodLastMonth:
 		return newPeriod(monthStart.AddDate(0, -1, 0), monthStart), nil
 	case PeriodCustom:
-		from, okFrom := spec.From.startOfDay()
-		to, okTo := spec.To.startOfDay()
+		from, okFrom := spec.From.withYear(local.Year()).startOfDay()
+		to, okTo := spec.To.withYear(local.Year()).startOfDay()
 		if !okFrom || !okTo || to.Before(from) {
 			return Period{}, exception.ErrInvalidPeriod
 		}
@@ -75,4 +75,15 @@ func (d Date) startOfDay() (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return t, true
+}
+
+func (d Date) withYear(year int) Date {
+	if d.Year == 0 {
+		d.Year = year
+	}
+	return d
+}
+
+func (p Period) Days() (first, last time.Time) {
+	return p.Start.In(brasiliaZone), p.End.Add(-time.Nanosecond).In(brasiliaZone)
 }
