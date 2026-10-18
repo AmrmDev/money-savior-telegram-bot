@@ -31,12 +31,12 @@ func NewRegisterExpenseController(usecase RegisterExpenseUseCase, sender Sender)
 
 func (c *RegisterExpenseController) Handle(ctx context.Context, message Message) error {
 	if len(message.Args) < 2 {
-		return c.sender.Send(ctx, message.ChatID, presenter.InvalidExpenseFormat())
+		return reject(ctx, c.sender, message.ChatID, presenter.InvalidExpenseFormat(), "missing arguments")
 	}
 
 	amountCents, err := parseAmountCents(message.Args[0])
 	if err != nil {
-		return c.sender.Send(ctx, message.ChatID, presenter.InvalidAmount())
+		return reject(ctx, c.sender, message.ChatID, presenter.InvalidAmount(), "invalid amount format")
 	}
 
 	in := input.RegisterExpense{
@@ -53,10 +53,7 @@ func (c *RegisterExpenseController) Handle(ctx context.Context, message Message)
 
 	expense, err := c.usecase.Execute(execCtx, in)
 	if err != nil {
-		if sendErr := c.sender.Send(ctx, message.ChatID, presenter.RegisterExpenseError(err)); sendErr != nil {
-			return sendErr
-		}
-		return err
+		return respondError(ctx, c.sender, message.ChatID, presenter.RegisterExpenseError(err), err)
 	}
 
 	return c.sender.Send(ctx, message.ChatID, presenter.ExpenseRegistered(expense))
