@@ -7,8 +7,8 @@ import (
 	"money-savior-telegram-bot/app/src/core/domain"
 )
 
-//fixed-width UTC timestamp: string order matches chronological order
-//(RFC3339Nano trims trailing zeros, which breaks lexicographic ordering)
+// fixed-width UTC timestamp: string order matches chronological order
+// (RFC3339Nano trims trailing zeros, which breaks lexicographic ordering)
 const createdAtLayout = "2006-01-02T15:04:05.000Z"
 
 type expenseItem struct {
