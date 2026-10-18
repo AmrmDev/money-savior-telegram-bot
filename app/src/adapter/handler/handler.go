@@ -13,17 +13,20 @@ type Handler struct {
 	startController           *controller.StartController
 	helpController            *controller.HelpController
 	registerExpenseController *controller.RegisterExpenseController
+	queryExpensesController   *controller.QueryExpensesController
 }
 
 func NewHandler(
 	start *controller.StartController,
 	help *controller.HelpController,
-	register *controller.RegisterExpenseController,
+	registerExpense *controller.RegisterExpenseController,
+	queryExpenses *controller.QueryExpensesController,
 ) *Handler {
 	return &Handler{
 		startController:           start,
 		helpController:            help,
-		registerExpenseController: register,
+		registerExpenseController: registerExpense,
+		queryExpensesController:   queryExpenses,
 	}
 }
 
@@ -39,6 +42,8 @@ func (h *Handler) Handle(ctx context.Context, update tgbotapi.Update) error {
 		return h.startController.Handle(ctx, message)
 	case "gastei":
 		return h.registerExpenseController.Handle(ctx, message)
+	case "consulta":
+		return h.queryExpensesController.Handle(ctx, message)
 	default:
 		return h.helpController.Handle(ctx, message)
 	}
