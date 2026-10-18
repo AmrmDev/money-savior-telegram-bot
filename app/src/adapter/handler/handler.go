@@ -2,7 +2,10 @@ package handler
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -14,6 +17,7 @@ type Handler struct {
 	helpController            *controller.HelpController
 	registerExpenseController *controller.RegisterExpenseController
 	queryExpensesController   *controller.QueryExpensesController
+	logger                    *slog.Logger
 }
 
 func NewHandler(
@@ -21,31 +25,71 @@ func NewHandler(
 	help *controller.HelpController,
 	registerExpense *controller.RegisterExpenseController,
 	queryExpenses *controller.QueryExpensesController,
+	logger *slog.Logger,
 ) *Handler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return &Handler{
 		startController:           start,
 		helpController:            help,
 		registerExpenseController: registerExpense,
 		queryExpensesController:   queryExpenses,
+		logger:                    logger,
 	}
 }
 
-func (h *Handler) Handle(ctx context.Context, update tgbotapi.Update) error {
+// Handle processes one update. Failures are logged and never returned: on a webhook,
+// a non-200 answer makes Telegram resend the update and could register an expense twice.
+func (h *Handler) Handle(ctx context.Context, update tgbotapi.Update) {
 	if update.Message == nil || update.Message.From == nil {
-		return nil
+		h.logger.DebugContext(ctx, "update ignored", slog.Int("update_id", update.UpdateID))
+		return
 	}
 
 	message := toMessage(update.Message)
 
+	startedAt := time.Now()
+	command, err := h.dispatch(ctx, message)
+	h.logResult(ctx, update.UpdateID, message.UserID, command, time.Since(startedAt), err)
+}
+
+// dispatch returns the route name that handled the message. The raw command typed by
+// the user is never returned, so it can be logged safely.
+func (h *Handler) dispatch(ctx context.Context, message controller.Message) (string, error) {
 	switch message.Command {
 	case "start":
-		return h.startController.Handle(ctx, message)
+		return "start", h.startController.Handle(ctx, message)
 	case "gastei":
-		return h.registerExpenseController.Handle(ctx, message)
+		return "gastei", h.registerExpenseController.Handle(ctx, message)
 	case "consulta":
-		return h.queryExpensesController.Handle(ctx, message)
+		return "consulta", h.queryExpensesController.Handle(ctx, message)
 	default:
-		return h.helpController.Handle(ctx, message)
+		return "help", h.helpController.Handle(ctx, message)
+	}
+}
+
+// logResult writes one line per update, with identifiers and technical data only:
+// never the message text, amounts, categories or names.
+func (h *Handler) logResult(ctx context.Context, updateID int, userID int64, command string, duration time.Duration, err error) {
+	attrs := []slog.Attr{
+		slog.Int("update_id", updateID),
+		slog.Int64("user_id", userID),
+		slog.String("command", command),
+		slog.Int64("duration_ms", duration.Milliseconds()),
+	}
+
+	switch {
+	case err == nil:
+		attrs = append(attrs, slog.String("outcome", "ok"))
+		h.logger.LogAttrs(ctx, slog.LevelInfo, "update handled", attrs...)
+	case errors.Is(err, controller.ErrInvalidInput):
+		attrs = append(attrs, slog.String("outcome", "invalid_input"), slog.String("reason", err.Error()))
+		h.logger.LogAttrs(ctx, slog.LevelWarn, "update rejected", attrs...)
+	default:
+		attrs = append(attrs, slog.String("outcome", "error"), slog.String("error", err.Error()))
+		h.logger.LogAttrs(ctx, slog.LevelError, "update failed", attrs...)
 	}
 }
 
