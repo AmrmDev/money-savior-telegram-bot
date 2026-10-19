@@ -1,57 +1,71 @@
-package main
+package logger
 
 import (
-	"context"
-	"log"
-
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-
-	"money-savior-telegram-bot/app/src/adapter/controller"
-	"money-savior-telegram-bot/app/src/adapter/handler"
-	"money-savior-telegram-bot/app/src/core/usecase"
-	infraaws "money-savior-telegram-bot/app/src/infra/aws"
-	"money-savior-telegram-bot/app/src/infra/aws/repository"
-	"money-savior-telegram-bot/app/src/infra/config"
-	infrahttp "money-savior-telegram-bot/app/src/infra/http"
-	"money-savior-telegram-bot/app/src/infra/id"
+	"io"
+	"log/slog"
+	"os"
+	"strings"
 )
 
-func main() {
-	ctx := context.Background()
+const redacted = "[REDACTED]"
 
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("load config: %v", err)
+//build the app logger masking every value passed as secret
+func New(level, format string, secrets ...string) *slog.Logger {
+	return newWithWriter(os.Stdout, level, format, secrets...)
+}
+
+func newWithWriter(w io.Writer, level, format string, secrets ...string) *slog.Logger {
+	opts := &slog.HandlerOptions{
+		Level:       parseLevel(level),
+		ReplaceAttr: redactor(secrets),
 	}
 
-	bot, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
-	if err != nil {
-		log.Fatalf("create bot: %v", err)
+	if strings.EqualFold(strings.TrimSpace(format), "json") {
+		return slog.New(slog.NewJSONHandler(w, opts))
 	}
+	return slog.New(slog.NewTextHandler(w, opts))
+}
 
-	dynamoClient, err := infraaws.NewDynamoClient(ctx)
-	if err != nil {
-		log.Fatalf("create dynamo client: %v", err)
+func parseLevel(level string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
+}
 
-	sender := infrahttp.NewTelegramSender(bot)
-	expenseRepository := repository.NewExpenseRepository(dynamoClient, cfg.TableName)
-	idGenerator := id.NewExpenseIDGenerator()
-
-	registerExpense := usecase.NewRegisterExpense(expenseRepository, idGenerator)
-	queryExpenses := usecase.NewQueryExpenses(expenseRepository)
-
-	h := handler.NewHandler(
-		controller.NewStartController(sender),
-		controller.NewHelpController(sender),
-		controller.NewRegisterExpenseController(registerExpense, sender),
-		controller.NewQueryExpensesController(queryExpenses, sender),
-	)
-
-	updates := bot.GetUpdatesChan(tgbotapi.NewUpdate(0))
-	for update := range updates {
-		if err := h.Handle(ctx, update); err != nil {
-			log.Printf("handle update %d: %v", update.UpdateID, err)
+func redactor(secrets []string) func([]string, slog.Attr) slog.Attr {
+	var active []string
+	for _, secret := range secrets {
+		if secret != "" {
+			active = append(active, secret)
 		}
+	}
+	if len(active) == 0 {
+		return nil
+	}
+
+	scrub := func(text string) string {
+		for _, secret := range active {
+			text = strings.ReplaceAll(text, secret, redacted)
+		}
+		return text
+	}
+
+	return func(_ []string, attr slog.Attr) slog.Attr {
+		switch attr.Value.Kind() {
+		case slog.KindString:
+			attr.Value = slog.StringValue(scrub(attr.Value.String()))
+		case slog.KindAny:
+			if err, ok := attr.Value.Any().(error); ok {
+				attr.Value = slog.StringValue(scrub(err.Error()))
+			}
+		}
+		return attr
 	}
 }
