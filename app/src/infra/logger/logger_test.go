@@ -3,6 +3,7 @@ package logger
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -86,5 +87,34 @@ func TestNew_RespectsLevel(t *testing.T) {
 	}
 	if !strings.Contains(out, "should appear") {
 		t.Errorf("warn entry should be present: %s", out)
+	}
+}
+
+func TestNew_RedactsSecrets(t *testing.T) {
+	var buf bytes.Buffer
+	log := newWithWriter(&buf, "info", "json", "123456:SECRET-TOKEN")
+
+	log.Error("send failed with 123456:SECRET-TOKEN",
+		"error", errors.New(`Post "https://api.telegram.org/bot123456:SECRET-TOKEN/sendMessage": timeout`),
+		"detail", "token=123456:SECRET-TOKEN",
+	)
+
+	out := buf.String()
+	if strings.Contains(out, "SECRET-TOKEN") {
+		t.Errorf("secret leaked into the log: %s", out)
+	}
+	if !strings.Contains(out, redacted) {
+		t.Errorf("expected the redaction marker in the log: %s", out)
+	}
+}
+
+func TestNew_WithoutSecretsKeepsValues(t *testing.T) {
+	var buf bytes.Buffer
+	log := newWithWriter(&buf, "info", "json")
+
+	log.Info("hello", "detail", "plain value")
+
+	if !strings.Contains(buf.String(), "plain value") {
+		t.Errorf("values should be untouched without secrets: %s", buf.String())
 	}
 }

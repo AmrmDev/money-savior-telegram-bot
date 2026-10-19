@@ -1,71 +1,73 @@
-package logger
+package main
 
 import (
-	"io"
+	"context"
 	"log/slog"
 	"os"
-	"strings"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+	"money-savior-telegram-bot/app/src/adapter/controller"
+	"money-savior-telegram-bot/app/src/adapter/handler"
+	"money-savior-telegram-bot/app/src/core/usecase"
+	infraaws "money-savior-telegram-bot/app/src/infra/aws"
+	"money-savior-telegram-bot/app/src/infra/aws/repository"
+	"money-savior-telegram-bot/app/src/infra/config"
+	infrahttp "money-savior-telegram-bot/app/src/infra/http"
+	"money-savior-telegram-bot/app/src/infra/id"
+	"money-savior-telegram-bot/app/src/infra/logger"
 )
 
-const redacted = "[REDACTED]"
+func main() {
+	ctx := context.Background()
 
-//build the app logger masking every value passed as secret
-func New(level, format string, secrets ...string) *slog.Logger {
-	return newWithWriter(os.Stdout, level, format, secrets...)
+	cfg, err := config.Load()
+	if err != nil {
+		fatal(slog.Default(), "load config", err)
+	}
+
+	log := logger.New(cfg.LogLevel, cfg.LogFormat, cfg.TelegramToken)
+	slog.SetDefault(log)
+
+	bot, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
+	if err != nil {
+		fatal(log, "create bot", err)
+	}
+
+	dynamoClient, err := infraaws.NewDynamoClient(ctx)
+	if err != nil {
+		fatal(log, "create dynamo client", err)
+	}
+
+	sender := infrahttp.NewTelegramSender(bot)
+	expenseRepository := repository.NewExpenseRepository(dynamoClient, cfg.TableName)
+	idGenerator := id.NewExpenseIDGenerator()
+
+	registerExpense := usecase.NewRegisterExpense(expenseRepository, idGenerator)
+	queryExpenses := usecase.NewQueryExpenses(expenseRepository)
+
+	h := handler.NewHandler(
+		controller.NewStartController(sender),
+		controller.NewHelpController(sender),
+		controller.NewRegisterExpenseController(registerExpense, sender),
+		controller.NewQueryExpensesController(queryExpenses, sender),
+		log,
+	)
+
+	log.Info("bot started",
+		slog.String("bot", bot.Self.UserName),
+		slog.String("mode", "polling"),
+		slog.String("table", cfg.TableName),
+		slog.String("log_level", cfg.LogLevel),
+	)
+
+	updates := bot.GetUpdatesChan(tgbotapi.NewUpdate(0))
+	for update := range updates {
+		h.Handle(ctx, update)
+	}
 }
 
-func newWithWriter(w io.Writer, level, format string, secrets ...string) *slog.Logger {
-	opts := &slog.HandlerOptions{
-		Level:       parseLevel(level),
-		ReplaceAttr: redactor(secrets),
-	}
-
-	if strings.EqualFold(strings.TrimSpace(format), "json") {
-		return slog.New(slog.NewJSONHandler(w, opts))
-	}
-	return slog.New(slog.NewTextHandler(w, opts))
-}
-
-func parseLevel(level string) slog.Level {
-	switch strings.ToLower(strings.TrimSpace(level)) {
-	case "debug":
-		return slog.LevelDebug
-	case "warn", "warning":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
-}
-
-func redactor(secrets []string) func([]string, slog.Attr) slog.Attr {
-	var active []string
-	for _, secret := range secrets {
-		if secret != "" {
-			active = append(active, secret)
-		}
-	}
-	if len(active) == 0 {
-		return nil
-	}
-
-	scrub := func(text string) string {
-		for _, secret := range active {
-			text = strings.ReplaceAll(text, secret, redacted)
-		}
-		return text
-	}
-
-	return func(_ []string, attr slog.Attr) slog.Attr {
-		switch attr.Value.Kind() {
-		case slog.KindString:
-			attr.Value = slog.StringValue(scrub(attr.Value.String()))
-		case slog.KindAny:
-			if err, ok := attr.Value.Any().(error); ok {
-				attr.Value = slog.StringValue(scrub(err.Error()))
-			}
-		}
-		return attr
-	}
+func fatal(log *slog.Logger, msg string, err error) {
+	log.Error(msg, slog.String("error", err.Error()))
+	os.Exit(1)
 }
