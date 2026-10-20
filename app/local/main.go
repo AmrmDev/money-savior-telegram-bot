@@ -51,6 +51,7 @@ func main() {
 		controller.NewHelpController(sender),
 		controller.NewRegisterExpenseController(registerExpense, sender),
 		controller.NewQueryExpensesController(queryExpenses, sender),
+		cfg.AllowedUserID,
 		log,
 	)
 

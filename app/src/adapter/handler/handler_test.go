@@ -49,6 +49,7 @@ func newTestHandler(sender *fakeSender, register *fakeRegister, logs *bytes.Buff
 		controller.NewHelpController(sender),
 		controller.NewRegisterExpenseController(register, sender),
 		controller.NewQueryExpensesController(&fakeQuery{}, sender),
+		0,
 		slog.New(slog.NewJSONHandler(logs, nil)),
 	)
 }
@@ -155,4 +156,101 @@ func TestHandle_IgnoresUpdateWithoutMessage(t *testing.T) {
 	if logs.Len() != 0 {
 		t.Errorf("an ignored update must not log at the default level: %s", logs.String())
 	}
+}
+
+// newRestrictedHandler builds a handler that only answers to userID 20 (the user
+// used by commandUpdate) and logs from DEBUG up, so blocked updates show in the buffer.
+func newRestrictedHandler(sender *fakeSender, register *fakeRegister, logs *bytes.Buffer) *Handler {
+	return NewHandler(
+		controller.NewStartController(sender),
+		controller.NewHelpController(sender),
+		controller.NewRegisterExpenseController(register, sender),
+		controller.NewQueryExpensesController(&fakeQuery{}, sender),
+		20,
+		slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	)
+}
+
+func TestHandle_AllowedUserIsServed(t *testing.T) {
+	var logs bytes.Buffer
+	sender := &fakeSender{}
+	register := &fakeRegister{expense: domain.Expense{ID: "123MSB456PA", AmountCents: 5090, Category: "Mercado"}}
+	h := newRestrictedHandler(sender, register, &logs)
+
+	h.Handle(context.Background(), commandUpdate(1, "/gastei 50,90 mercado"))
+
+	if len(sender.replies) != 1 {
+		t.Fatalf("expected one reply, got %d", len(sender.replies))
+	}
+	if entry := lastEntry(t, &logs); entry["outcome"] != "ok" {
+		t.Errorf("unexpected entry: %v", entry)
+	}
+}
+
+func TestHandle_OtherUserIsIgnoredInSilence(t *testing.T) {
+	var logs bytes.Buffer
+	sender := &fakeSender{}
+	h := newRestrictedHandler(sender, &fakeRegister{}, &logs)
+
+	update := commandUpdate(9, "/gastei 50,90 mercado pix")
+	update.Message.From.ID = 999
+
+	h.Handle(context.Background(), update)
+
+	if len(sender.replies) != 0 {
+		t.Errorf("a blocked user must get no reply, got %d", len(sender.replies))
+	}
+
+	entry := lastEntry(t, &logs)
+	if entry["level"] != "DEBUG" || entry["update_id"] != float64(9) || entry["user_id"] != float64(999) {
+		t.Errorf("unexpected entry: %v", entry)
+	}
+	if _, ok := entry["outcome"]; ok {
+		t.Errorf("a blocked update must not look like a handled one: %v", entry)
+	}
+}
+
+func TestHandle_BlockedUserNeverReachesTheUseCase(t *testing.T) {
+	var logs bytes.Buffer
+	sender := &fakeSender{}
+	register := &countingRegister{}
+	h := NewHandler(
+		controller.NewStartController(sender),
+		controller.NewHelpController(sender),
+		controller.NewRegisterExpenseController(register, sender),
+		controller.NewQueryExpensesController(&fakeQuery{}, sender),
+		20,
+		slog.New(slog.NewJSONHandler(&logs, nil)),
+	)
+
+	update := commandUpdate(1, "/gastei 50,90 mercado pix")
+	update.Message.From.ID = 999
+	h.Handle(context.Background(), update)
+
+	if register.calls != 0 {
+		t.Errorf("the use case must not run for a blocked user, ran %d times", register.calls)
+	}
+}
+
+func TestHandle_BlockedUserLogsNoUserData(t *testing.T) {
+	var logs bytes.Buffer
+	h := newRestrictedHandler(&fakeSender{}, &fakeRegister{}, &logs)
+
+	update := commandUpdate(1, "/gastei 50,90 mercado pix")
+	update.Message.From.ID = 999
+	h.Handle(context.Background(), update)
+
+	output := strings.ToLower(logs.String())
+	for _, secret := range []string{"50,90", "mercado", "pix", "gastei", "tester"} {
+		if strings.Contains(output, secret) {
+			t.Errorf("logs must not contain %q:\n%s", secret, logs.String())
+		}
+	}
+}
+
+type countingRegister struct{ calls int }
+
+func (c *countingRegister) Execute(context.Context, input.RegisterExpense) (domain.Expense, error) {
+	c.calls++
+	return domain.Expense{}, nil
 }

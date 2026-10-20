@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func setBaseEnv(t *testing.T) {
 	t.Helper()
@@ -9,6 +12,7 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("LOG_LEVEL", "")
 	t.Setenv("LOG_FORMAT", "")
 	t.Setenv("AWS_LAMBDA_FUNCTION_NAME", "")
+	t.Setenv("ALLOWED_USER_ID", "")
 }
 
 func TestLoad_LogDefaultsOnLocal(t *testing.T) {
@@ -66,5 +70,47 @@ func TestLoad_RequiresTableName(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Error("expected an error when the table name is missing")
+	}
+}
+
+func TestLoad_AllowedUserIDDefaultsToZero(t *testing.T) {
+	setBaseEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.AllowedUserID != 0 {
+		t.Errorf("expected 0 when unset, got %d", cfg.AllowedUserID)
+	}
+}
+
+func TestLoad_AllowedUserIDIsParsed(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("ALLOWED_USER_ID", " 123456789 ")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.AllowedUserID != 123456789 {
+		t.Errorf("unexpected id: %d", cfg.AllowedUserID)
+	}
+}
+
+func TestLoad_AllowedUserIDRejectsInvalidValues(t *testing.T) {
+	for _, value := range []string{"abc", "12.5", "-7", "0", "123abc"} {
+		t.Run(value, func(t *testing.T) {
+			setBaseEnv(t)
+			t.Setenv("ALLOWED_USER_ID", value)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatal("expected an error for an invalid ALLOWED_USER_ID")
+			}
+			if strings.Contains(err.Error(), value) {
+				t.Errorf("error should not echo the value: %v", err)
+			}
+		})
 	}
 }

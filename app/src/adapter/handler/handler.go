@@ -17,6 +17,7 @@ type Handler struct {
 	helpController            *controller.HelpController
 	registerExpenseController *controller.RegisterExpenseController
 	queryExpensesController   *controller.QueryExpensesController
+	allowedUserID             int64
 	logger                    *slog.Logger
 }
 
@@ -25,6 +26,7 @@ func NewHandler(
 	help *controller.HelpController,
 	registerExpense *controller.RegisterExpenseController,
 	queryExpenses *controller.QueryExpensesController,
+	allowedUserID int64,
 	logger *slog.Logger,
 ) *Handler {
 	if logger == nil {
@@ -36,15 +38,22 @@ func NewHandler(
 		helpController:            help,
 		registerExpenseController: registerExpense,
 		queryExpensesController:   queryExpenses,
+		allowedUserID:             allowedUserID,
 		logger:                    logger,
 	}
 }
 
-// Handle processes one update. Failures are logged and never returned: on a webhook,
-// a non-200 answer makes Telegram resend the update and could register an expense twice.
 func (h *Handler) Handle(ctx context.Context, update tgbotapi.Update) {
 	if update.Message == nil || update.Message.From == nil {
 		h.logger.DebugContext(ctx, "update ignored", slog.Int("update_id", update.UpdateID))
+		return
+	}
+
+	if !h.allowed(update.Message.From.ID) {
+		h.logger.DebugContext(ctx, "update from a user that is not allowed",
+			slog.Int("update_id", update.UpdateID),
+			slog.Int64("user_id", update.Message.From.ID),
+		)
 		return
 	}
 
@@ -55,8 +64,10 @@ func (h *Handler) Handle(ctx context.Context, update tgbotapi.Update) {
 	h.logResult(ctx, update.UpdateID, message.UserID, command, time.Since(startedAt), err)
 }
 
-// dispatch returns the route name that handled the message. The raw command typed by
-// the user is never returned, so it can be logged safely.
+func (h *Handler) allowed(userID int64) bool {
+	return h.allowedUserID == 0 || userID == h.allowedUserID
+}
+
 func (h *Handler) dispatch(ctx context.Context, message controller.Message) (string, error) {
 	switch message.Command {
 	case "start":
@@ -70,8 +81,6 @@ func (h *Handler) dispatch(ctx context.Context, message controller.Message) (str
 	}
 }
 
-// logResult writes one line per update, with identifiers and technical data only:
-// never the message text, amounts, categories or names.
 func (h *Handler) logResult(ctx context.Context, updateID int, userID int64, command string, duration time.Duration, err error) {
 	attrs := []slog.Attr{
 		slog.Int("update_id", updateID),
