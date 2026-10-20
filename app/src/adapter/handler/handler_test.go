@@ -51,6 +51,7 @@ func newTestHandler(sender *fakeSender, register *fakeRegister, logs *bytes.Buff
 		controller.NewRegisterExpenseController(register, sender),
 		controller.NewQueryExpensesController(&fakeQuery{}, sender),
 		newVoice(sender, &fakeDownloader{}),
+		newConfirm(&countingRegister{}, &fakeResponder{}),
 		0,
 		slog.New(slog.NewJSONHandler(logs, nil)),
 	)
@@ -169,6 +170,7 @@ func newRestrictedHandler(sender *fakeSender, register *fakeRegister, logs *byte
 		controller.NewRegisterExpenseController(register, sender),
 		controller.NewQueryExpensesController(&fakeQuery{}, sender),
 		newVoice(sender, &fakeDownloader{}),
+		newConfirm(&countingRegister{}, &fakeResponder{}),
 		20,
 		slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	)
@@ -223,6 +225,7 @@ func TestHandle_BlockedUserNeverReachesTheUseCase(t *testing.T) {
 		controller.NewRegisterExpenseController(register, sender),
 		controller.NewQueryExpensesController(&fakeQuery{}, sender),
 		newVoice(sender, &fakeDownloader{}),
+		newConfirm(&countingRegister{}, &fakeResponder{}),
 		20,
 		slog.New(slog.NewJSONHandler(&logs, nil)),
 	)
@@ -298,6 +301,7 @@ func newVoiceHandler(sender *fakeSender, downloader *fakeDownloader, allowedUser
 		controller.NewRegisterExpenseController(&fakeRegister{}, sender),
 		controller.NewQueryExpensesController(&fakeQuery{}, sender),
 		newVoice(sender, downloader),
+		newConfirm(&countingRegister{}, &fakeResponder{}),
 		allowedUserID,
 		slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	)
@@ -388,6 +392,160 @@ func TestHandle_NeverLogsVoiceContent(t *testing.T) {
 
 	output := strings.ToLower(logs.String())
 	for _, secret := range []string{"segredoxyz", "quanto", "tester", "file-1"} {
+		if strings.Contains(output, secret) {
+			t.Errorf("logs must not contain %q:\n%s", secret, logs.String())
+		}
+	}
+}
+
+type fakeResponder struct {
+	edits    []string
+	answered []string
+}
+
+func (f *fakeResponder) Edit(_ context.Context, _ int64, _ int, reply presenter.Reply) error {
+	f.edits = append(f.edits, reply.Text)
+	return nil
+}
+
+func (f *fakeResponder) AnswerCallback(_ context.Context, callbackID string) error {
+	f.answered = append(f.answered, callbackID)
+	return nil
+}
+
+func newConfirm(register controller.RegisterExpenseUseCase, responder *fakeResponder) *controller.ConfirmExpenseController {
+	return controller.NewConfirmExpenseController(register, responder)
+}
+
+func newCallbackHandler(register *countingRegister, responder *fakeResponder, allowedUserID int64, logs *bytes.Buffer) *Handler {
+	sender := &fakeSender{}
+	return NewHandler(
+		controller.NewStartController(sender),
+		controller.NewHelpController(sender),
+		controller.NewRegisterExpenseController(&fakeRegister{}, sender),
+		controller.NewQueryExpensesController(&fakeQuery{}, sender),
+		newVoice(sender, &fakeDownloader{}),
+		newConfirm(register, responder),
+		allowedUserID,
+		slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	)
+}
+
+func callbackUpdate(updateID int, userID int64, data string) tgbotapi.Update {
+	return tgbotapi.Update{
+		UpdateID: updateID,
+		CallbackQuery: &tgbotapi.CallbackQuery{
+			ID:      "cb-1",
+			From:    &tgbotapi.User{ID: userID, UserName: "tester"},
+			Message: &tgbotapi.Message{MessageID: 7, Chat: &tgbotapi.Chat{ID: 10}},
+			Data:    data,
+		},
+	}
+}
+
+func TestHandle_ConfirmButtonRegistersTheExpense(t *testing.T) {
+	var logs bytes.Buffer
+	register := &countingRegister{}
+	responder := &fakeResponder{}
+	h := newCallbackHandler(register, responder, 20, &logs)
+
+	h.Handle(context.Background(), callbackUpdate(11, 20, "g|300|Água|Pix"))
+
+	entry := lastEntry(t, &logs)
+	if entry["level"] != "INFO" || entry["outcome"] != "ok" || entry["command"] != "callback" {
+		t.Errorf("unexpected entry: %v", entry)
+	}
+	if entry["update_id"] != float64(11) || entry["user_id"] != float64(20) {
+		t.Errorf("missing identifiers: %v", entry)
+	}
+	if register.calls != 1 || len(responder.edits) != 1 || len(responder.answered) != 1 {
+		t.Errorf("expected one registration, one edit and one answer, got %d, %d, %d",
+			register.calls, len(responder.edits), len(responder.answered))
+	}
+}
+
+func TestHandle_CancelButtonRegistersNothing(t *testing.T) {
+	var logs bytes.Buffer
+	register := &countingRegister{}
+	responder := &fakeResponder{}
+	h := newCallbackHandler(register, responder, 20, &logs)
+
+	h.Handle(context.Background(), callbackUpdate(12, 20, "x"))
+
+	if entry := lastEntry(t, &logs); entry["outcome"] != "ok" || entry["command"] != "callback" {
+		t.Errorf("unexpected entry: %v", entry)
+	}
+	if register.calls != 0 || len(responder.edits) != 1 || !strings.Contains(responder.edits[0], "Cancelado") {
+		t.Errorf("unexpected result: calls=%d edits=%v", register.calls, responder.edits)
+	}
+}
+
+func TestHandle_ButtonFromAnotherUserIsIgnored(t *testing.T) {
+	var logs bytes.Buffer
+	register := &countingRegister{}
+	responder := &fakeResponder{}
+	h := newCallbackHandler(register, responder, 20, &logs)
+
+	h.Handle(context.Background(), callbackUpdate(13, 999, "g|300|Água|Pix"))
+
+	if register.calls != 0 || len(responder.edits) != 0 || len(responder.answered) != 0 {
+		t.Errorf("a blocked user must trigger nothing, got %d, %d, %d",
+			register.calls, len(responder.edits), len(responder.answered))
+	}
+
+	entry := lastEntry(t, &logs)
+	if entry["level"] != "DEBUG" || entry["update_id"] != float64(13) || entry["user_id"] != float64(999) {
+		t.Errorf("unexpected entry: %v", entry)
+	}
+	if _, ok := entry["outcome"]; ok {
+		t.Errorf("a blocked update must not look like a handled one: %v", entry)
+	}
+}
+
+func TestHandle_InvalidButtonIsRejected(t *testing.T) {
+	var logs bytes.Buffer
+	register := &countingRegister{}
+	responder := &fakeResponder{}
+	h := newCallbackHandler(register, responder, 0, &logs)
+
+	h.Handle(context.Background(), callbackUpdate(14, 20, "lixo"))
+
+	entry := lastEntry(t, &logs)
+	if entry["level"] != "WARN" || entry["outcome"] != "invalid_input" || entry["command"] != "callback" {
+		t.Errorf("unexpected entry: %v", entry)
+	}
+	if register.calls != 0 {
+		t.Error("nothing may be registered for an invalid button")
+	}
+}
+
+func TestHandle_ButtonWithoutMessageIsRejected(t *testing.T) {
+	var logs bytes.Buffer
+	register := &countingRegister{}
+	responder := &fakeResponder{}
+	h := newCallbackHandler(register, responder, 0, &logs)
+
+	update := callbackUpdate(15, 20, "g|300|Água|Pix")
+	update.CallbackQuery.Message = nil
+	h.Handle(context.Background(), update)
+
+	if entry := lastEntry(t, &logs); entry["outcome"] != "invalid_input" {
+		t.Errorf("unexpected entry: %v", entry)
+	}
+	if register.calls != 0 || len(responder.edits) != 0 || len(responder.answered) != 1 {
+		t.Errorf("expected only the answer, got %d, %d, %d", register.calls, len(responder.edits), len(responder.answered))
+	}
+}
+
+func TestHandle_NeverLogsButtonData(t *testing.T) {
+	var logs bytes.Buffer
+	h := newCallbackHandler(&countingRegister{}, &fakeResponder{}, 0, &logs)
+
+	h.Handle(context.Background(), callbackUpdate(16, 20, "g|300|Segredoxyz|Pix"))
+	h.Handle(context.Background(), callbackUpdate(17, 20, "g|abc|Segredoxyz|Pix"))
+
+	output := strings.ToLower(logs.String())
+	for _, secret := range []string{"segredoxyz", "tester", "g|300", "g|abc"} {
 		if strings.Contains(output, secret) {
 			t.Errorf("logs must not contain %q:\n%s", secret, logs.String())
 		}

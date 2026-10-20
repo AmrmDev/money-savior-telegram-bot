@@ -54,6 +54,7 @@ func main() {
 
 	queryController := controller.NewQueryExpensesController(queryExpenses, sender)
 	voiceController := controller.NewVoiceController(audioDownloader, transcriber, intentParser, queryController, sender)
+	confirmController := controller.NewConfirmExpenseController(registerExpense, sender)
 
 	h := handler.NewHandler(
 		controller.NewStartController(sender),
@@ -61,6 +62,7 @@ func main() {
 		controller.NewRegisterExpenseController(registerExpense, sender),
 		queryController,
 		voiceController,
+		confirmController,
 		cfg.AllowedUserID,
 		log,
 	)
