@@ -17,6 +17,7 @@ import (
 	"money-savior-telegram-bot/app/src/core/domain/exception"
 	"money-savior-telegram-bot/app/src/core/usecase"
 	"money-savior-telegram-bot/app/src/core/usecase/input"
+	"money-savior-telegram-bot/app/src/core/port"
 )
 
 type fakeSender struct {
@@ -44,11 +45,12 @@ func (f *fakeQuery) Execute(context.Context, input.QueryExpenses) (usecase.Expen
 }
 
 func newTestHandler(sender *fakeSender, register *fakeRegister, logs *bytes.Buffer) *Handler {
-	return NewHandler(
+		return NewHandler(
 		controller.NewStartController(sender),
 		controller.NewHelpController(sender),
 		controller.NewRegisterExpenseController(register, sender),
 		controller.NewQueryExpensesController(&fakeQuery{}, sender),
+		newVoice(sender, &fakeDownloader{}),
 		0,
 		slog.New(slog.NewJSONHandler(logs, nil)),
 	)
@@ -166,6 +168,7 @@ func newRestrictedHandler(sender *fakeSender, register *fakeRegister, logs *byte
 		controller.NewHelpController(sender),
 		controller.NewRegisterExpenseController(register, sender),
 		controller.NewQueryExpensesController(&fakeQuery{}, sender),
+		newVoice(sender, &fakeDownloader{}),
 		20,
 		slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	)
@@ -219,6 +222,7 @@ func TestHandle_BlockedUserNeverReachesTheUseCase(t *testing.T) {
 		controller.NewHelpController(sender),
 		controller.NewRegisterExpenseController(register, sender),
 		controller.NewQueryExpensesController(&fakeQuery{}, sender),
+		newVoice(sender, &fakeDownloader{}),
 		20,
 		slog.New(slog.NewJSONHandler(&logs, nil)),
 	)
@@ -253,4 +257,139 @@ type countingRegister struct{ calls int }
 func (c *countingRegister) Execute(context.Context, input.RegisterExpense) (domain.Expense, error) {
 	c.calls++
 	return domain.Expense{}, nil
+}
+
+type fakeDownloader struct {
+	err   error
+	calls int
+}
+
+func (f *fakeDownloader) Download(context.Context, string) ([]byte, error) {
+	f.calls++
+	return []byte("ogg"), f.err
+}
+
+type fakeTranscriber struct{}
+
+func (fakeTranscriber) Transcribe(context.Context, []byte) (string, error) {
+	return "quanto gastei com segredoxyz hoje", nil
+}
+
+type fakeParser struct{}
+
+func (fakeParser) Parse(context.Context, string) (port.Intent, error) {
+	return port.Intent{Kind: port.IntentQuery, PeriodKeyword: "hoje"}, nil
+}
+
+func newVoice(sender *fakeSender, downloader *fakeDownloader) *controller.VoiceController {
+	return controller.NewVoiceController(
+		downloader,
+		fakeTranscriber{},
+		fakeParser{},
+		controller.NewQueryExpensesController(&fakeQuery{}, sender),
+		sender,
+	)
+}
+
+func newVoiceHandler(sender *fakeSender, downloader *fakeDownloader, allowedUserID int64, logs *bytes.Buffer) *Handler {
+	return NewHandler(
+		controller.NewStartController(sender),
+		controller.NewHelpController(sender),
+		controller.NewRegisterExpenseController(&fakeRegister{}, sender),
+		controller.NewQueryExpensesController(&fakeQuery{}, sender),
+		newVoice(sender, downloader),
+		allowedUserID,
+		slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	)
+}
+
+func voiceUpdate(updateID int, userID int64, seconds int) tgbotapi.Update {
+	return tgbotapi.Update{
+		UpdateID: updateID,
+		Message: &tgbotapi.Message{
+			Chat:  &tgbotapi.Chat{ID: 10},
+			From:  &tgbotapi.User{ID: userID, UserName: "tester"},
+			Voice: &tgbotapi.Voice{FileID: "file-1", Duration: seconds},
+		},
+	}
+}
+
+func TestHandle_VoiceIsRoutedToTheVoiceController(t *testing.T) {
+	var logs bytes.Buffer
+	sender := &fakeSender{}
+	downloader := &fakeDownloader{}
+	h := newVoiceHandler(sender, downloader, 20, &logs)
+
+	h.Handle(context.Background(), voiceUpdate(5, 20, 4))
+
+	entry := lastEntry(t, &logs)
+	if entry["level"] != "INFO" || entry["outcome"] != "ok" || entry["command"] != "voz" {
+		t.Errorf("unexpected entry: %v", entry)
+	}
+	if entry["update_id"] != float64(5) || entry["user_id"] != float64(20) {
+		t.Errorf("missing identifiers: %v", entry)
+	}
+	if downloader.calls != 1 || len(sender.replies) != 1 {
+		t.Errorf("expected one download and one reply, got %d and %d", downloader.calls, len(sender.replies))
+	}
+}
+
+func TestHandle_VoiceFromAnotherUserIsIgnored(t *testing.T) {
+	var logs bytes.Buffer
+	sender := &fakeSender{}
+	downloader := &fakeDownloader{}
+	h := newVoiceHandler(sender, downloader, 20, &logs)
+
+	h.Handle(context.Background(), voiceUpdate(6, 999, 4))
+
+	if downloader.calls != 0 || len(sender.replies) != 0 {
+		t.Errorf("a blocked user must not trigger a download or a reply, got %d and %d", downloader.calls, len(sender.replies))
+	}
+}
+
+func TestHandle_VoiceTooLongIsRejected(t *testing.T) {
+	var logs bytes.Buffer
+	sender := &fakeSender{}
+	downloader := &fakeDownloader{}
+	h := newVoiceHandler(sender, downloader, 0, &logs)
+
+	h.Handle(context.Background(), voiceUpdate(7, 20, 31))
+
+	entry := lastEntry(t, &logs)
+	if entry["level"] != "WARN" || entry["outcome"] != "invalid_input" || entry["command"] != "voz" {
+		t.Errorf("unexpected entry: %v", entry)
+	}
+	if downloader.calls != 0 || len(sender.replies) != 1 {
+		t.Errorf("expected no download and one reply, got %d and %d", downloader.calls, len(sender.replies))
+	}
+}
+
+func TestHandle_VoiceFailureIsLoggedAsError(t *testing.T) {
+	var logs bytes.Buffer
+	sender := &fakeSender{}
+	h := newVoiceHandler(sender, &fakeDownloader{err: errors.New("telegram down")}, 0, &logs)
+
+	h.Handle(context.Background(), voiceUpdate(8, 20, 4))
+
+	entry := lastEntry(t, &logs)
+	if entry["level"] != "ERROR" || entry["outcome"] != "error" || entry["command"] != "voz" {
+		t.Errorf("unexpected entry: %v", entry)
+	}
+	if len(sender.replies) != 1 {
+		t.Errorf("the user must get exactly one reply, got %d", len(sender.replies))
+	}
+}
+
+func TestHandle_NeverLogsVoiceContent(t *testing.T) {
+	var logs bytes.Buffer
+	h := newVoiceHandler(&fakeSender{}, &fakeDownloader{}, 0, &logs)
+
+	h.Handle(context.Background(), voiceUpdate(9, 20, 4))
+
+	output := strings.ToLower(logs.String())
+	for _, secret := range []string{"segredoxyz", "quanto", "tester", "file-1"} {
+		if strings.Contains(output, secret) {
+			t.Errorf("logs must not contain %q:\n%s", secret, logs.String())
+		}
+	}
 }

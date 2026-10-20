@@ -16,7 +16,7 @@ import (
 
 const (
 	audioDownloadTimeout = 15 * time.Second
-	maxDownloadBytes = 5 << 20
+	maxDownloadBytes     = 5 << 20
 )
 
 var _ controller.AudioDownloader = (*TelegramAudioDownloader)(nil)

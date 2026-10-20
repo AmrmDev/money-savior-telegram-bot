@@ -17,6 +17,7 @@ type Handler struct {
 	helpController            *controller.HelpController
 	registerExpenseController *controller.RegisterExpenseController
 	queryExpensesController   *controller.QueryExpensesController
+	voiceController           *controller.VoiceController
 	allowedUserID             int64
 	logger                    *slog.Logger
 }
@@ -26,6 +27,7 @@ func NewHandler(
 	help *controller.HelpController,
 	registerExpense *controller.RegisterExpenseController,
 	queryExpenses *controller.QueryExpensesController,
+	voice *controller.VoiceController,
 	allowedUserID int64,
 	logger *slog.Logger,
 ) *Handler {
@@ -38,6 +40,7 @@ func NewHandler(
 		helpController:            help,
 		registerExpenseController: registerExpense,
 		queryExpensesController:   queryExpenses,
+		voiceController:           voice,
 		allowedUserID:             allowedUserID,
 		logger:                    logger,
 	}
@@ -69,6 +72,10 @@ func (h *Handler) allowed(userID int64) bool {
 }
 
 func (h *Handler) dispatch(ctx context.Context, message controller.Message) (string, error) {
+	if message.VoiceFileID != "" {
+		return "voz", h.voiceController.Handle(ctx, message)
+	}
+
 	switch message.Command {
 	case "start":
 		return "start", h.startController.Handle(ctx, message)
@@ -103,11 +110,17 @@ func (h *Handler) logResult(ctx context.Context, updateID int, userID int64, com
 }
 
 func toMessage(m *tgbotapi.Message) controller.Message {
-	return controller.Message{
+	message := controller.Message{
 		ChatID:   m.Chat.ID,
 		UserID:   m.From.ID,
 		Username: m.From.UserName,
 		Command:  m.Command(),
 		Args:     strings.Fields(m.CommandArguments()),
 	}
+
+	if m.Voice != nil {
+		message.VoiceFileID = m.Voice.FileID
+		message.VoiceSeconds = m.Voice.Duration
+	}
+	return message
 }

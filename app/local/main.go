@@ -16,6 +16,7 @@ import (
 	infrahttp "money-savior-telegram-bot/app/src/infra/http"
 	"money-savior-telegram-bot/app/src/infra/id"
 	"money-savior-telegram-bot/app/src/infra/logger"
+	"money-savior-telegram-bot/app/src/infra/groq"
 )
 
 func main() {
@@ -47,11 +48,19 @@ func main() {
 	registerExpense := usecase.NewRegisterExpense(expenseRepository, idGenerator)
 	queryExpenses := usecase.NewQueryExpenses(expenseRepository)
 
+	audioDownloader := infrahttp.NewTelegramAudioDownloader(bot)
+	transcriber := groq.NewTranscriber(cfg.GroqAPIKey)
+	intentParser := groq.NewIntentParser(cfg.GroqAPIKey)
+
+	queryController := controller.NewQueryExpensesController(queryExpenses, sender)
+	voiceController := controller.NewVoiceController(audioDownloader, transcriber, intentParser, queryController, sender)
+
 	h := handler.NewHandler(
 		controller.NewStartController(sender),
 		controller.NewHelpController(sender),
 		controller.NewRegisterExpenseController(registerExpense, sender),
-		controller.NewQueryExpensesController(queryExpenses, sender),
+		queryController,
+		voiceController,
 		cfg.AllowedUserID,
 		log,
 	)
