@@ -26,7 +26,8 @@ func main() {
 		fatal(slog.Default(), "load config", err)
 	}
 
-	log := logger.New(cfg.LogLevel, cfg.LogFormat, cfg.TelegramToken)
+	log := logger.New(cfg.LogLevel, cfg.LogFormat, cfg.TelegramToken, cfg.GroqAPIKey)	
+	
 	slog.SetDefault(log)
 
 	bot, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
