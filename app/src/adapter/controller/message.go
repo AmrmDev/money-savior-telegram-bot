@@ -6,4 +6,7 @@ type Message struct {
 	Command  string
 	Username string
 	Args     []string
+
+	VoiceFileID  string
+	VoiceSeconds int
 }
