@@ -87,3 +87,22 @@ func (d Date) withYear(year int) Date {
 func (p Period) Days() (first, last time.Time) {
 	return p.Start.In(brasiliaZone), p.End.Add(-time.Nanosecond).In(brasiliaZone)
 }
+
+func DateOf(t time.Time) Date {
+	local := t.In(brasiliaZone)
+	return Date{Year: local.Year(), Month: local.Month(), Day: local.Day()}
+}
+
+func (d Date) Before(other Date) bool {
+	if d.Year != other.Year {
+		return d.Year < other.Year
+	}
+	if d.Month != other.Month {
+		return d.Month < other.Month
+	}
+	return d.Day < other.Day
+}
+
+func (d Date) Weekday() time.Weekday {
+	return time.Date(d.Year, d.Month, d.Day, 12, 0, 0, 0, brasiliaZone).Weekday()
+}
