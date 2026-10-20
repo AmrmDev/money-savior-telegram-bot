@@ -158,7 +158,6 @@ func TestVoiceController_InvalidPeriodFromTheAIIsRejected(t *testing.T) {
 		{Kind: port.IntentQuery, PeriodKeyword: "mes_retrasado"},
 		{Kind: port.IntentQuery, From: "12/10"},
 		{Kind: port.IntentQuery, From: "12/10", To: "abc"},
-		{Kind: port.IntentQuery, From: "99/99", To: "15/10"},
 	}
 
 	for _, intent := range tests {
@@ -300,5 +299,18 @@ func TestVoiceController_TechnicalFailuresAnswerAndReturnTheError(t *testing.T) 
 				t.Error("the query must not run after a failure")
 			}
 		})
+	}
+}
+
+func TestVoiceController_DatesThatDoNotExistGoToTheQueryController(t *testing.T) {
+	f := newVoiceFixture(port.Intent{Kind: port.IntentQuery, From: "99/99", To: "15/10"})
+
+	if err := f.controller.Handle(context.Background(), voiceMessage()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []Message{{ChatID: 10, UserID: 20, Args: []string{"99/99", "15/10"}}}
+	if !reflect.DeepEqual(f.queries.messages, want) {
+		t.Errorf("unexpected query messages: %+v", f.queries.messages)
 	}
 }
