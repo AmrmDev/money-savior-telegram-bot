@@ -15,9 +15,9 @@ import (
 	"money-savior-telegram-bot/app/src/adapter/presenter"
 	"money-savior-telegram-bot/app/src/core/domain"
 	"money-savior-telegram-bot/app/src/core/domain/exception"
+	"money-savior-telegram-bot/app/src/core/port"
 	"money-savior-telegram-bot/app/src/core/usecase"
 	"money-savior-telegram-bot/app/src/core/usecase/input"
-	"money-savior-telegram-bot/app/src/core/port"
 )
 
 type fakeSender struct {
@@ -45,7 +45,7 @@ func (f *fakeQuery) Execute(context.Context, input.QueryExpenses) (usecase.Expen
 }
 
 func newTestHandler(sender *fakeSender, register *fakeRegister, logs *bytes.Buffer) *Handler {
-		return NewHandler(
+	return NewHandler(
 		controller.NewStartController(sender),
 		controller.NewHelpController(sender),
 		controller.NewRegisterExpenseController(register, sender),

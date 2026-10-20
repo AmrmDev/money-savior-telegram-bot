@@ -13,10 +13,10 @@ import (
 	infraaws "money-savior-telegram-bot/app/src/infra/aws"
 	"money-savior-telegram-bot/app/src/infra/aws/repository"
 	"money-savior-telegram-bot/app/src/infra/config"
+	"money-savior-telegram-bot/app/src/infra/groq"
 	infrahttp "money-savior-telegram-bot/app/src/infra/http"
 	"money-savior-telegram-bot/app/src/infra/id"
 	"money-savior-telegram-bot/app/src/infra/logger"
-	"money-savior-telegram-bot/app/src/infra/groq"
 )
 
 func main() {
