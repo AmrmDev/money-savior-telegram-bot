@@ -10,8 +10,6 @@ import (
 	"math"
 
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/gofont/gobold"
-	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 
@@ -19,73 +17,179 @@ import (
 )
 
 const (
-	chartWidth     = 1000
-	chartMargin    = 40
-	chartHeaderH   = 140
-	chartRowH      = 64
-	chartFooterH   = 30
-	chartBarHeight = 30
-	chartLabelW    = 220
-	chartValueW    = 170
-	chartPercentW  = 90
+	chartWidth    = 1000
+	chartMargin   = 56
+	chartGridStep = 40
+	chartCornerAA = 4
+
+	chartEyebrowY  = 76
+	chartTotalY    = 164
+	chartSubtitleY = 210
+	chartDividerY  = 242
+	chartRowsTop   = 254
+	chartRowH      = 80
+	chartBarHeight = 14
+
+	chartLabelX    = chartMargin + 28
+	chartBarX      = 310
+	chartValueW    = 190
+	chartPercentW  = 84
 	chartColumnGap = 16
-	chartCornerAA  = 4
+
+	chartCardGap = 28
+	chartCardH   = 120
+
+	chartFooterGap = 68
+	chartBottomPad = 48
 )
 
-type chartTheme struct {
-	background color.RGBA
-	title      color.RGBA
-	muted      color.RGBA
-	track      color.RGBA
-	bar        color.RGBA
-	others     color.RGBA
+var (
+	colorBackground = color.RGBA{R: 0x0B, G: 0x0B, B: 0x24, A: 0xFF}
+	colorPanel      = color.RGBA{R: 0x12, G: 0x12, B: 0x2E, A: 0xFF}
+	colorBorder     = color.RGBA{R: 0x2A, G: 0x2A, B: 0x4E, A: 0xFF}
+	colorDivider    = color.RGBA{R: 0x1F, G: 0x1F, B: 0x3F, A: 0xFF}
+	colorTrack      = color.RGBA{R: 0x1B, G: 0x1B, B: 0x3A, A: 0xFF}
+	colorText       = color.RGBA{R: 0xF5, G: 0xF5, B: 0xFF, A: 0xFF}
+	colorSoftText   = color.RGBA{R: 0xC9, G: 0xC9, B: 0xE0, A: 0xFF}
+	colorMuted      = color.RGBA{R: 0x8F, G: 0x8F, B: 0xB3, A: 0xFF}
+	colorAccent     = color.RGBA{R: 0xFF, G: 0x8A, B: 0x3D, A: 0xFF}
+	colorBar        = color.RGBA{R: 0x3D, G: 0xDC, B: 0x84, A: 0xFF}
+	colorOthers     = color.RGBA{R: 0x64, G: 0x6B, B: 0x8F, A: 0xFF}
+)
+
+// chartContent holds the ready-to-draw strings, so this file never formats domain data.
+type chartContent struct {
+	Eyebrow  string
+	Total    string
+	Subtitle string
+	Rows     []usecase.CategoryTotal
+	Peak     *chartPeak
 }
 
-var lightTheme = chartTheme{
-	background: color.RGBA{R: 0xF9, G: 0xFA, B: 0xFB, A: 0xFF},
-	title:      color.RGBA{R: 0x11, G: 0x18, B: 0x27, A: 0xFF},
-	muted:      color.RGBA{R: 0x6B, G: 0x72, B: 0x80, A: 0xFF},
-	track:      color.RGBA{R: 0xE5, G: 0xE7, B: 0xEB, A: 0xFF},
-	bar:        color.RGBA{R: 0x10, G: 0xB9, B: 0x81, A: 0xFF},
-	others:     color.RGBA{R: 0x9C, G: 0xA3, B: 0xAF, A: 0xFF},
+type chartPeak struct {
+	Label string
+	Value string
+	Note  string
 }
 
-var darkTheme = chartTheme{
-	background: color.RGBA{R: 0x1E, G: 0x29, B: 0x3B, A: 0xFF},
-	title:      color.RGBA{R: 0xF1, G: 0xF5, B: 0xF9, A: 0xFF},
-	muted:      color.RGBA{R: 0x94, G: 0xA3, B: 0xB8, A: 0xFF},
-	track:      color.RGBA{R: 0x33, G: 0x41, B: 0x55, A: 0xFF},
-	bar:        color.RGBA{R: 0x34, G: 0xD3, B: 0x99, A: 0xFF},
-	others:     color.RGBA{R: 0x64, G: 0x74, B: 0x8B, A: 0xFF},
+type chartFaces struct {
+	total     font.Face
+	subtitle  font.Face
+	label     font.Face
+	value     font.Face
+	percent   font.Face
+	eyebrow   font.Face
+	peakLabel font.Face
+	peakValue font.Face
+	peakNote  font.Face
+	footer    font.Face
 }
 
-var defaultTheme = darkTheme
+func newChartFaces() (*chartFaces, error) {
+	var faces chartFaces
 
-func renderSummaryChart(title, subtitle string, rows []usecase.CategoryTotal) ([]byte, error) {
-	return renderSummaryChartWithTheme(defaultTheme, title, subtitle, rows)
+	specs := []struct {
+		target *font.Face
+		ttf    []byte
+		size   float64
+	}{
+		{&faces.total, fontSansMedium, 76},
+		{&faces.subtitle, fontSansRegular, 26},
+		{&faces.label, fontSansRegular, 28},
+		{&faces.value, fontMono, 26},
+		{&faces.percent, fontMono, 22},
+		{&faces.eyebrow, fontMono, 20},
+		{&faces.peakLabel, fontSansMedium, 34},
+		{&faces.peakValue, fontMono, 36},
+		{&faces.peakNote, fontMono, 20},
+		{&faces.footer, fontMono, 18},
+	}
+
+	for _, spec := range specs {
+		face, err := newFace(spec.ttf, spec.size)
+		if err != nil {
+			faces.Close()
+			return nil, err
+		}
+		*spec.target = face
+	}
+
+	return &faces, nil
 }
 
-func renderSummaryChartWithTheme(theme chartTheme, title, subtitle string, rows []usecase.CategoryTotal) ([]byte, error) {
-	titleFace, err := newFace(gobold.TTF, 38)
+func (f *chartFaces) Close() {
+	all := []font.Face{
+		f.total, f.subtitle, f.label, f.value, f.percent,
+		f.eyebrow, f.peakLabel, f.peakValue, f.peakNote, f.footer,
+	}
+	for _, face := range all {
+		if face != nil {
+			face.Close()
+		}
+	}
+}
+
+func chartHeight(rowCount int, withPeak bool) int {
+	contentEnd := chartRowsTop + rowCount*chartRowH
+	if withPeak {
+		contentEnd += chartCardGap + chartCardH
+	}
+	return contentEnd + chartFooterGap + chartBottomPad
+}
+
+func renderSummaryChart(content chartContent) ([]byte, error) {
+	faces, err := newChartFaces()
 	if err != nil {
 		return nil, err
 	}
-	defer titleFace.Close()
+	defer faces.Close()
 
-	textFace, err := newFace(goregular.TTF, 26)
-	if err != nil {
-		return nil, err
-	}
-	defer textFace.Close()
+	height := chartHeight(len(content.Rows), content.Peak != nil)
+	rowsEnd := chartRowsTop + len(content.Rows)*chartRowH
 
-	height := chartHeaderH + len(rows)*chartRowH + chartFooterH
 	img := image.NewRGBA(image.Rect(0, 0, chartWidth, height))
-	fillRect(img, img.Bounds(), theme.background)
+	fillRect(img, img.Bounds(), colorBackground)
+	drawGrid(img)
 
+	drawHeader(img, faces, content)
+	drawRows(img, faces, content.Rows)
+	if content.Peak != nil {
+		drawPeakCard(img, faces, *content.Peak, rowsEnd+chartCardGap)
+	}
+	drawSpacedText(img, faces.footer, colorMuted, chartMargin, height-chartBottomPad, "MONEY SAVIOR", 4)
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, fmt.Errorf("encode chart png: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+func drawGrid(img *image.RGBA) {
+	grid := mixColor(colorBackground, color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}, 0.04)
+	bounds := img.Bounds()
+
+	for x := 0; x < bounds.Max.X; x += chartGridStep {
+		fillRect(img, image.Rect(x, 0, x+1, bounds.Max.Y), grid)
+	}
+	for y := 0; y < bounds.Max.Y; y += chartGridStep {
+		fillRect(img, image.Rect(0, y, bounds.Max.X, y+1), grid)
+	}
+}
+
+func drawHeader(img *image.RGBA, faces *chartFaces, content chartContent) {
 	contentW := chartWidth - 2*chartMargin
-	drawText(img, titleFace, theme.title, chartMargin, 70, fitText(titleFace, title, contentW))
-	drawText(img, textFace, theme.muted, chartMargin, 112, fitText(textFace, subtitle, contentW))
 
+	fillRect(img, image.Rect(chartMargin, chartEyebrowY-14, chartMargin+12, chartEyebrowY-2), colorAccent)
+	drawSpacedText(img, faces.eyebrow, colorAccent, chartMargin+28, chartEyebrowY, content.Eyebrow, 2)
+
+	drawText(img, faces.total, colorText, chartMargin, chartTotalY, fitText(faces.total, content.Total, contentW))
+	drawText(img, faces.subtitle, colorMuted, chartMargin, chartSubtitleY, fitText(faces.subtitle, content.Subtitle, contentW))
+
+	fillRect(img, image.Rect(chartMargin, chartDividerY, chartWidth-chartMargin, chartDividerY+1), colorBorder)
+}
+
+func drawRows(img *image.RGBA, faces *chartFaces, rows []usecase.CategoryTotal) {
 	var totalCents, maxCents int64
 	for _, row := range rows {
 		totalCents += row.TotalCents
@@ -94,21 +198,24 @@ func renderSummaryChartWithTheme(theme chartTheme, title, subtitle string, rows 
 		}
 	}
 
-	metrics := textFace.Metrics()
-	centerOffset := ((metrics.Ascent - metrics.Descent) / 2).Round()
-
 	percentRight := chartWidth - chartMargin
 	valueRight := percentRight - chartPercentW
-	barX := chartMargin + chartLabelW
-	barW := valueRight - chartValueW - chartColumnGap - barX
+	barW := valueRight - chartValueW - chartColumnGap - chartBarX
 	radius := chartBarHeight / 2
 
 	for i, row := range rows {
-		rowTop := chartHeaderH + i*chartRowH
-		barTop := rowTop + (chartRowH-chartBarHeight)/2
-		baseline := barTop + chartBarHeight/2 + centerOffset
+		rowTop := chartRowsTop + i*chartRowH
+		center := rowTop + chartRowH/2
+		barTop := center - chartBarHeight/2
+		isLeader := i == 0
 
-		fillRoundedRect(img, image.Rect(barX, barTop, barX+barW, barTop+chartBarHeight), radius, theme.track)
+		nameColor, valueColor := colorSoftText, colorSoftText
+		if isLeader {
+			nameColor, valueColor = colorText, colorText
+			fillRect(img, image.Rect(chartMargin, center-26, chartMargin+4, center+26), colorAccent)
+		}
+
+		fillRoundedRect(img, image.Rect(chartBarX, barTop, chartBarX+barW, barTop+chartBarHeight), radius, colorTrack)
 
 		fillW := 0
 		if maxCents > 0 {
@@ -118,22 +225,39 @@ func renderSummaryChartWithTheme(theme chartTheme, title, subtitle string, rows 
 			fillW = 4
 		}
 
-		barColor := theme.bar
+		barColor := colorBar
 		if row.Category == othersLabel {
-			barColor = theme.others
+			barColor = colorOthers
 		}
-		fillRoundedRect(img, image.Rect(barX, barTop, barX+fillW, barTop+chartBarHeight), radius, barColor)
+		fillRoundedRect(img, image.Rect(chartBarX, barTop, chartBarX+fillW, barTop+chartBarHeight), radius, barColor)
 
-		drawText(img, textFace, theme.title, chartMargin, baseline, fitText(textFace, row.Category, chartLabelW-chartColumnGap))
-		drawTextRight(img, textFace, theme.title, valueRight, baseline, formatMoney(row.TotalCents))
-		drawTextRight(img, textFace, theme.muted, percentRight, baseline, percentLabel(row.TotalCents, totalCents))
-	}
+		nameWidth := chartBarX - chartLabelX - chartColumnGap
+		drawText(img, faces.label, nameColor, chartLabelX, centeredBaseline(faces.label, center), fitText(faces.label, row.Category, nameWidth))
+		drawTextRight(img, faces.value, valueColor, valueRight, centeredBaseline(faces.value, center), formatMoney(row.TotalCents))
+		drawTextRight(img, faces.percent, colorMuted, percentRight, centeredBaseline(faces.percent, center), percentLabel(row.TotalCents, totalCents))
 
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		return nil, fmt.Errorf("encode chart png: %w", err)
+		separator := colorDivider
+		if i == len(rows)-1 {
+			separator = colorBorder
+		}
+		fillRect(img, image.Rect(chartMargin, rowTop+chartRowH-1, chartWidth-chartMargin, rowTop+chartRowH), separator)
 	}
-	return buf.Bytes(), nil
+}
+
+func drawPeakCard(img *image.RGBA, faces *chartFaces, peak chartPeak, top int) {
+	left, right := chartMargin, chartWidth-chartMargin
+
+	fillRect(img, image.Rect(left, top, right, top+chartCardH), colorBorder)
+	fillRect(img, image.Rect(left+1, top+1, right-1, top+chartCardH-1), colorPanel)
+	fillRect(img, image.Rect(left, top, left+4, top+chartCardH), colorAccent)
+
+	textX := left + 32
+	valueRight := right - 32
+
+	drawSpacedText(img, faces.eyebrow, colorAccent, textX, top+42, "DIA MAIS PESADO", 2)
+	drawText(img, faces.peakLabel, colorText, textX, top+92, fitText(faces.peakLabel, peak.Label, valueRight-textX-300))
+	drawTextRight(img, faces.peakNote, colorMuted, valueRight, top+42, peak.Note)
+	drawTextRight(img, faces.peakValue, colorAccent, valueRight, top+92, peak.Value)
 }
 
 func percentLabel(cents, total int64) string {
@@ -163,6 +287,13 @@ func newFace(ttf []byte, size float64) (font.Face, error) {
 		return nil, fmt.Errorf("create font face: %w", err)
 	}
 	return face, nil
+}
+
+func mixColor(base, over color.RGBA, amount float64) color.RGBA {
+	mix := func(b, o uint8) uint8 {
+		return uint8(float64(b)*(1-amount) + float64(o)*amount + 0.5)
+	}
+	return color.RGBA{R: mix(base.R, over.R), G: mix(base.G, over.G), B: mix(base.B, over.B), A: 0xFF}
 }
 
 func fillRect(img *image.RGBA, rect image.Rectangle, c color.Color) {
@@ -231,6 +362,11 @@ func blendPixel(img *image.RGBA, x, y int, c color.RGBA, coverage float64) {
 	img.SetRGBA(x, y, color.RGBA{R: mix(c.R, dst.R), G: mix(c.G, dst.G), B: mix(c.B, dst.B), A: 0xFF})
 }
 
+func centeredBaseline(face font.Face, center int) int {
+	metrics := face.Metrics()
+	return center + ((metrics.Ascent - metrics.Descent) / 2).Round()
+}
+
 func drawText(img *image.RGBA, face font.Face, c color.Color, x, baseline int, text string) {
 	drawer := &font.Drawer{
 		Dst:  img,
@@ -239,6 +375,19 @@ func drawText(img *image.RGBA, face font.Face, c color.Color, x, baseline int, t
 		Dot:  fixed.P(x, baseline),
 	}
 	drawer.DrawString(text)
+}
+
+func drawSpacedText(img *image.RGBA, face font.Face, c color.Color, x, baseline int, text string, spacing int) {
+	drawer := &font.Drawer{
+		Dst:  img,
+		Src:  image.NewUniform(c),
+		Face: face,
+		Dot:  fixed.P(x, baseline),
+	}
+	for _, r := range text {
+		drawer.DrawString(string(r))
+		drawer.Dot.X += fixed.I(spacing)
+	}
 }
 
 func drawTextRight(img *image.RGBA, face font.Face, c color.Color, rightX, baseline int, text string) {

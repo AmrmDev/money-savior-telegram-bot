@@ -1,15 +1,9 @@
 package presenter
 
 import (
-	"bytes"
 	"image"
 	"image/color"
-	"image/png"
-	"os"
-	"path/filepath"
 	"testing"
-
-	"money-savior-telegram-bot/app/src/core/usecase"
 )
 
 func TestPercentLabel(t *testing.T) {
@@ -91,58 +85,34 @@ func TestFillRoundedRect_EmptyRectIsIgnored(t *testing.T) {
 	fillRoundedRect(img, image.Rect(5, 5, 5, 5), 4, color.RGBA{R: 0xFF, A: 0xFF})
 }
 
-func TestRenderSummaryChart_UsesThemeBackground(t *testing.T) {
-	rows := []usecase.CategoryTotal{
-		{Category: "Mercado", TotalCents: 7500, Count: 2},
-		{Category: "Uber", TotalCents: 1500, Count: 1},
+func TestMixColor(t *testing.T) {
+	black := color.RGBA{A: 0xFF}
+	white := color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
+
+	if got := mixColor(black, white, 0); got != black {
+		t.Errorf("amount 0 should keep the base color, got %v", got)
 	}
-
-	themes := map[string]chartTheme{"dark": darkTheme, "light": lightTheme}
-
-	for name, theme := range themes {
-		t.Run(name, func(t *testing.T) {
-			data, err := renderSummaryChartWithTheme(theme, "Gastos", "Total", rows)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			img, err := png.Decode(bytes.NewReader(data))
-			if err != nil {
-				t.Fatalf("output is not a valid PNG: %v", err)
-			}
-
-			got := color.RGBAModel.Convert(img.At(0, 0)).(color.RGBA)
-			if got != theme.background {
-				t.Errorf("background = %v, want %v", got, theme.background)
-			}
-		})
+	if got := mixColor(black, white, 1); got != white {
+		t.Errorf("amount 1 should return the overlay color, got %v", got)
+	}
+	if got := mixColor(black, white, 0.5); got.R != 128 || got.G != 128 || got.B != 128 {
+		t.Errorf("amount 0.5 should land in the middle, got %v", got)
 	}
 }
 
-func TestRenderSummaryChart_ThemePreview(t *testing.T) {
-	dir := os.Getenv("CHART_DIR")
-	if dir == "" {
-		t.Skip("set CHART_DIR=/some/folder to write chart-dark.png and chart-light.png")
+func TestDrawGrid_PaintsOnlyTheLines(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 100, 100))
+	fillRect(img, img.Bounds(), colorBackground)
+
+	drawGrid(img)
+
+	if got := img.RGBAAt(chartGridStep, 10); got == colorBackground {
+		t.Error("a vertical grid line should be painted")
 	}
-
-	rows := []usecase.CategoryTotal{
-		{Category: "Mercado", TotalCents: 52090, Count: 6},
-		{Category: "Uber", TotalCents: 18700, Count: 5},
-		{Category: "Restaurante", TotalCents: 15400, Count: 3},
-		{Category: "Farmácia", TotalCents: 8990, Count: 2},
-		{Category: "Assinaturas e serviços de streaming", TotalCents: 4590, Count: 1},
-		{Category: othersLabel, TotalCents: 1200, Count: 2},
+	if got := img.RGBAAt(10, chartGridStep); got == colorBackground {
+		t.Error("a horizontal grid line should be painted")
 	}
-
-	themes := map[string]chartTheme{"dark": darkTheme, "light": lightTheme}
-
-	for name, theme := range themes {
-		data, err := renderSummaryChartWithTheme(theme, "Gastos de 01/10 a 13/10", "Total R$ 969,70 · 19 gastos", rows)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "chart-"+name+".png"), data, 0o644); err != nil {
-			t.Fatalf("write preview: %v", err)
-		}
+	if got := img.RGBAAt(10, 10); got != colorBackground {
+		t.Errorf("pixels between the lines must stay untouched, got %v", got)
 	}
 }
