@@ -1,13 +1,17 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 )
 
 type Config struct {
 	TelegramToken string
 	TableName     string
+	AllowedUserID int64
 	LogLevel      string
 	LogFormat     string
 }
@@ -23,9 +27,15 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	allowedUserID, err := optionalUserID("ALLOWED_USER_ID")
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		TelegramToken: token,
 		TableName:     table,
+		AllowedUserID: allowedUserID,
 		LogLevel:      optional("LOG_LEVEL", "info"),
 		LogFormat:     optional("LOG_FORMAT", defaultLogFormat()),
 	}, nil
@@ -44,6 +54,19 @@ func optional(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func optionalUserID(key string) (int64, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return 0, nil
+	}
+
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, errors.New("environment variable " + key + " must be a positive integer")
+	}
+	return id, nil
 }
 
 func defaultLogFormat() string {
