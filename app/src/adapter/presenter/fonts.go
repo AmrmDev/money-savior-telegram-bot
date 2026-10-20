@@ -1,13 +1,12 @@
 package presenter
 
-import (
-	"golang.org/x/image/font/gofont/gobold"
-	"golang.org/x/image/font/gofont/gomono"
-	"golang.org/x/image/font/gofont/goregular"
-)
+import _ "embed"
+
 
 var (
-	fontSansRegular = goregular.TTF
-	fontSansMedium  = gobold.TTF
-	fontMono        = gomono.TTF
+	fontSansRegular []byte
+
+	fontSansMedium []byte
+
+	fontMono []byte
 )
