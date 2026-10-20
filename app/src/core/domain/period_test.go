@@ -80,3 +80,54 @@ func TestPeriod_Days(t *testing.T) {
 		t.Errorf("unexpected days: %s to %s", first, last)
 	}
 }
+
+func TestDateOf_UsesBrasiliaCalendar(t *testing.T) {
+	tests := []struct {
+		name string
+		in   time.Time
+		want Date
+	}{
+		{"02:00 UTC is still the previous day", utc(2026, 10, 13, 2), Date{2026, 10, 12}},
+		{"03:00 UTC is midnight in Brasília", utc(2026, 10, 13, 3), Date{2026, 10, 13}},
+		{"crosses the year boundary", utc(2027, 1, 1, 2), Date{2026, 12, 31}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DateOf(tt.in); got != tt.want {
+				t.Errorf("got %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDate_Weekday(t *testing.T) {
+	if got := (Date{2026, 10, 19}).Weekday(); got != time.Monday {
+		t.Errorf("19/10/2026 should be a Monday, got %v", got)
+	}
+	if got := (Date{2026, 10, 18}).Weekday(); got != time.Sunday {
+		t.Errorf("18/10/2026 should be a Sunday, got %v", got)
+	}
+}
+
+func TestDate_Before(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b Date
+		want bool
+	}{
+		{"same day", Date{2026, 10, 12}, Date{2026, 10, 12}, false},
+		{"earlier day", Date{2026, 10, 11}, Date{2026, 10, 12}, true},
+		{"later day", Date{2026, 10, 13}, Date{2026, 10, 12}, false},
+		{"earlier month", Date{2026, 9, 30}, Date{2026, 10, 1}, true},
+		{"earlier year", Date{2025, 12, 31}, Date{2026, 1, 1}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.a.Before(tt.b); got != tt.want {
+				t.Errorf("%+v.Before(%+v) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}
