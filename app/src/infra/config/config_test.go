@@ -13,6 +13,7 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("LOG_FORMAT", "")
 	t.Setenv("AWS_LAMBDA_FUNCTION_NAME", "")
 	t.Setenv("ALLOWED_USER_ID", "")
+	t.Setenv("GROQ_API_KEY", "test-groq-key")
 }
 
 func TestLoad_LogDefaultsOnLocal(t *testing.T) {
@@ -112,5 +113,27 @@ func TestLoad_AllowedUserIDRejectsInvalidValues(t *testing.T) {
 				t.Errorf("error should not echo the value: %v", err)
 			}
 		})
+	}
+}
+
+func TestLoad_RequiresGroqAPIKey(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("GROQ_API_KEY", "")
+
+	if _, err := Load(); err == nil {
+		t.Error("expected an error when the Groq API key is missing")
+	}
+}
+
+func TestLoad_ReadsGroqAPIKey(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("GROQ_API_KEY", "gsk-test")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.GroqAPIKey != "gsk-test" {
+		t.Errorf("unexpected key: %q", cfg.GroqAPIKey)
 	}
 }
