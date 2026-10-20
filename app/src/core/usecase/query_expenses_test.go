@@ -127,3 +127,73 @@ func TestQueryExpenses_ReaderErrorIsWrapped(t *testing.T) {
 		t.Errorf("expected wrapped boom, got %v", err)
 	}
 }
+
+func expenseAt(category string, cents int64, at time.Time) domain.Expense {
+	return domain.Expense{Category: category, AmountCents: cents, CreatedAt: at}
+}
+
+func queryThisMonth(t *testing.T, reader *fakeReader) ExpensesSummary {
+	t.Helper()
+
+	got, err := newQueryUseCase(reader).Execute(context.Background(), input.QueryExpenses{
+		UserID: 1,
+		Period: domain.PeriodSpec{Kind: domain.PeriodThisMonth},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return got
+}
+
+func TestQueryExpenses_PeakDay(t *testing.T) {
+	reader := &fakeReader{expenses: []domain.Expense{
+		expenseAt("Mercado", 5000, time.Date(2026, 10, 12, 15, 0, 0, 0, time.UTC)),
+		expenseAt("Uber", 3000, time.Date(2026, 10, 12, 20, 0, 0, 0, time.UTC)),
+		expenseAt("Mercado", 7000, time.Date(2026, 10, 13, 15, 0, 0, 0, time.UTC)),
+	}}
+
+	got := queryThisMonth(t, reader)
+
+	want := DayTotal{Date: domain.Date{Year: 2026, Month: 10, Day: 12}, TotalCents: 8000, Count: 2}
+	if got.PeakDay == nil || *got.PeakDay != want {
+		t.Errorf("unexpected peak day: got %+v, want %+v", got.PeakDay, want)
+	}
+}
+
+func TestQueryExpenses_PeakDayTieKeepsEarlierDate(t *testing.T) {
+	reader := &fakeReader{expenses: []domain.Expense{
+		expenseAt("Mercado", 4000, time.Date(2026, 10, 11, 15, 0, 0, 0, time.UTC)),
+		expenseAt("Uber", 4000, time.Date(2026, 10, 10, 15, 0, 0, 0, time.UTC)),
+	}}
+
+	got := queryThisMonth(t, reader)
+
+	want := domain.Date{Year: 2026, Month: 10, Day: 10}
+	if got.PeakDay == nil || got.PeakDay.Date != want {
+		t.Errorf("a tie should pick the earlier day, got %+v", got.PeakDay)
+	}
+}
+
+func TestQueryExpenses_PeakDayUsesBrasiliaCalendar(t *testing.T) {
+	reader := &fakeReader{expenses: []domain.Expense{
+		// 23:30 of Oct 12 in Brasília, but already Oct 13 in UTC.
+		expenseAt("Mercado", 5000, time.Date(2026, 10, 13, 2, 30, 0, 0, time.UTC)),
+		// 01:00 of Oct 13 in Brasília.
+		expenseAt("Uber", 3000, time.Date(2026, 10, 13, 4, 0, 0, 0, time.UTC)),
+	}}
+
+	got := queryThisMonth(t, reader)
+
+	want := DayTotal{Date: domain.Date{Year: 2026, Month: 10, Day: 12}, TotalCents: 5000, Count: 1}
+	if got.PeakDay == nil || *got.PeakDay != want {
+		t.Errorf("unexpected peak day: got %+v, want %+v", got.PeakDay, want)
+	}
+}
+
+func TestQueryExpenses_NoPeakDayWithoutExpenses(t *testing.T) {
+	got := queryThisMonth(t, &fakeReader{})
+
+	if got.PeakDay != nil {
+		t.Errorf("expected no peak day, got %+v", got.PeakDay)
+	}
+}
