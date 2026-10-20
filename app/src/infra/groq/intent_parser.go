@@ -172,4 +172,49 @@ type intentRequest struct {
 func newIntentRequest(text string) intentRequest {
 	return intentRequest{
 		Model: intentModel,
-		Messages:
+		Messages: []chatMessage{
+			{Role: "system", Content: intentSystemMessage},
+			{Role: "user", Content: text},
+		},
+		Temperature:         0,
+		ReasoningEffort:     "low",
+		IncludeReasoning:    false,
+		MaxCompletionTokens: maxIntentTokens,
+		ResponseFormat: map[string]any{
+			"type": "json_schema",
+			"json_schema": map[string]any{
+				"name":   intentSchemaName,
+				"strict": true,
+				"schema": intentSchema(),
+			},
+		},
+	}
+}
+
+// intentSchema follows the strict mode rules: every property is required and the
+// ones that may be missing accept null.
+func intentSchema() map[string]any {
+	nullableText := map[string]any{"type": []string{"string", "null"}}
+
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"kind": map[string]any{
+				"type": "string",
+				"enum": []string{
+					string(port.IntentExpense),
+					string(port.IntentQuery),
+					string(port.IntentUnknown),
+				},
+			},
+			"amount":         nullableText,
+			"category":       nullableText,
+			"method":         nullableText,
+			"period_keyword": nullableText,
+			"from":           nullableText,
+			"to":             nullableText,
+		},
+		"required":             []string{"kind", "amount", "category", "method", "period_keyword", "from", "to"},
+		"additionalProperties": false,
+	}
+}
