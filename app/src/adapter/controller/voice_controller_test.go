@@ -177,27 +177,6 @@ func TestVoiceController_InvalidPeriodFromTheAIIsRejected(t *testing.T) {
 	}
 }
 
-func TestVoiceController_ExpenseIsNotRegisteredByVoice(t *testing.T) {
-	f := newVoiceFixture(port.Intent{Kind: port.IntentExpense, Amount: "45,73", Category: "Mercado", Method: "Pix"})
-
-	err := f.controller.Handle(context.Background(), voiceMessage())
-
-	if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("expected ErrInvalidInput, got %v", err)
-	}
-	if len(f.queries.messages) != 0 {
-		t.Error("nothing must run for an expense")
-	}
-	if len(f.sender.replies) != 1 || !strings.Contains(f.sender.replies[0].Text, "/gastei") {
-		t.Errorf("the user should be pointed to /gastei: %+v", f.sender.replies)
-	}
-	for _, secret := range []string{"45,73", "Mercado", "Pix"} {
-		if strings.Contains(err.Error(), secret) {
-			t.Errorf("the error must not carry %q: %v", secret, err)
-		}
-	}
-}
-
 func TestVoiceController_UnknownIntentAndEmptyTranscript(t *testing.T) {
 	t.Run("intenção desconhecida", func(t *testing.T) {
 		f := newVoiceFixture(port.Intent{Kind: port.IntentUnknown})
@@ -312,5 +291,122 @@ func TestVoiceController_DatesThatDoNotExistGoToTheQueryController(t *testing.T)
 	want := []Message{{ChatID: 10, UserID: 20, Args: []string{"99/99", "15/10"}}}
 	if !reflect.DeepEqual(f.queries.messages, want) {
 		t.Errorf("unexpected query messages: %+v", f.queries.messages)
+	}
+}
+
+func TestVoiceController_ExpenseIsPreviewedNotSaved(t *testing.T) {
+	f := newVoiceFixture(port.Intent{Kind: port.IntentExpense, Amount: "3", Category: "água", Method: "pix"})
+
+	if err := f.controller.Handle(context.Background(), voiceMessage()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(f.queries.messages) != 0 {
+		t.Error("an expense must not run the query")
+	}
+	if len(f.sender.replies) != 1 {
+		t.Fatalf("expected exactly one reply, got %d", len(f.sender.replies))
+	}
+
+	reply := f.sender.replies[0]
+	if !strings.Contains(reply.Text, "Água, R$ 3,00 (Pix)") {
+		t.Errorf("the preview must show the normalized expense: %q", reply.Text)
+	}
+	if len(reply.Buttons) != 2 || reply.Buttons[0].Data != "g|300|Água|Pix" || reply.Buttons[1].Data != "x" {
+		t.Errorf("unexpected buttons: %+v", reply.Buttons)
+	}
+}
+
+func TestVoiceController_PreviewWithoutMethod(t *testing.T) {
+	f := newVoiceFixture(port.Intent{Kind: port.IntentExpense, Amount: "45,73", Category: "Mercado"})
+
+	if err := f.controller.Handle(context.Background(), voiceMessage()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	reply := f.sender.replies[0]
+	if reply.Buttons[0].Data != "g|4573|Mercado|" || strings.Contains(reply.Text, "(") {
+		t.Errorf("unexpected preview: %+v", reply)
+	}
+}
+
+func TestVoiceController_PreviewAmounts(t *testing.T) {
+	tests := []struct {
+		amount string
+		want   string
+	}{
+		{"3", "g|300|Água|"},
+		{"0,5", "g|50|Água|"},
+		{"45,73", "g|4573|Água|"},
+		{"45.73", "g|4573|Água|"},
+		{"1200", "g|120000|Água|"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.amount, func(t *testing.T) {
+			f := newVoiceFixture(port.Intent{Kind: port.IntentExpense, Amount: tt.amount, Category: "Água"})
+
+			if err := f.controller.Handle(context.Background(), voiceMessage()); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := f.sender.replies[0].Buttons[0].Data; got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestVoiceController_InvalidExpenseFromTheAIIsRejected(t *testing.T) {
+	tests := []struct {
+		name   string
+		intent port.Intent
+	}{
+		{"valor não numérico", port.Intent{Kind: port.IntentExpense, Amount: "abc", Category: "Mercado"}},
+		{"valor vazio", port.Intent{Kind: port.IntentExpense, Amount: "", Category: "Mercado"}},
+		{"valor zero", port.Intent{Kind: port.IntentExpense, Amount: "0", Category: "Mercado"}},
+		{"valor negativo", port.Intent{Kind: port.IntentExpense, Amount: "-5", Category: "Mercado"}},
+		{"separador de milhar", port.Intent{Kind: port.IntentExpense, Amount: "1.200,50", Category: "Mercado"}},
+		{"categoria vazia", port.Intent{Kind: port.IntentExpense, Amount: "10", Category: ""}},
+		{"categoria só com espaços", port.Intent{Kind: port.IntentExpense, Amount: "10", Category: "   "}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newVoiceFixture(tt.intent)
+
+			err := f.controller.Handle(context.Background(), voiceMessage())
+
+			if !errors.Is(err, ErrInvalidInput) || strings.Contains(err.Error(), "Mercado") {
+				t.Errorf("expected a clean ErrInvalidInput, got %v", err)
+			}
+			if len(f.sender.replies) != 1 || len(f.sender.replies[0].Buttons) != 0 {
+				t.Errorf("expected one reply without buttons: %+v", f.sender.replies)
+			}
+		})
+	}
+}
+
+func TestVoiceController_ExpenseThatDoesNotFitTheButtonPointsToTheCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		category string
+	}{
+		{"categoria longa demais", strings.Repeat("a", 70)},
+		{"categoria com separador", "a|b"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newVoiceFixture(port.Intent{Kind: port.IntentExpense, Amount: "10", Category: tt.category})
+
+			err := f.controller.Handle(context.Background(), voiceMessage())
+
+			if !errors.Is(err, ErrInvalidInput) || strings.Contains(err.Error(), tt.category) {
+				t.Errorf("expected a clean ErrInvalidInput, got %v", err)
+			}
+			if len(f.sender.replies) != 1 || !strings.Contains(f.sender.replies[0].Text, "/gastei") || len(f.sender.replies[0].Buttons) != 0 {
+				t.Errorf("the user should be pointed to /gastei: %+v", f.sender.replies)
+			}
+		})
 	}
 }
