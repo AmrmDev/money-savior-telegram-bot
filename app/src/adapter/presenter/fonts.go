@@ -6,7 +6,6 @@ import (
 	"golang.org/x/image/font/gofont/goregular"
 )
 
-
 var (
 	fontSansRegular = goregular.TTF
 	fontSansMedium  = gobold.TTF
