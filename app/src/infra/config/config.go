@@ -11,6 +11,8 @@ import (
 type Config struct {
 	TelegramToken string
 	TableName     string
+	GroqAPIKey    string
+
 	AllowedUserID int64
 	LogLevel      string
 	LogFormat     string
@@ -27,6 +29,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	groqKey, err := required("GROQ_API_KEY")
+	if err != nil {
+		return Config{}, err
+	}
+
 	allowedUserID, err := optionalUserID("ALLOWED_USER_ID")
 	if err != nil {
 		return Config{}, err
@@ -35,6 +42,7 @@ func Load() (Config, error) {
 	return Config{
 		TelegramToken: token,
 		TableName:     table,
+		GroqAPIKey:    groqKey,
 		AllowedUserID: allowedUserID,
 		LogLevel:      optional("LOG_LEVEL", "info"),
 		LogFormat:     optional("LOG_FORMAT", defaultLogFormat()),
