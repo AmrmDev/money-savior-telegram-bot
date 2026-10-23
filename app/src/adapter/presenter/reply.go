@@ -6,7 +6,8 @@ type Button struct {
 }
 
 type Reply struct {
-	Text    string
-	Image   []byte
-	Buttons []Button
+	Text             string
+	Image            []byte
+	Buttons          []Button
+	ReplyPlaceHolder string
 }
