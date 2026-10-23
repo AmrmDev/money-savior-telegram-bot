@@ -25,30 +25,44 @@ func NewTelegramSender(bot *tgbotapi.BotAPI) *TelegramSender {
 
 func (s *TelegramSender) Send(_ context.Context, chatID int64, reply presenter.Reply) error {
 	if len(reply.Image) > 0 {
-		return s.sendPhoto(chatID, reply)
+		if _, err := s.bot.Send(buildPhoto(chatID, reply)); err != nil {
+			return fmt.Errorf("send telegram photo: %w", err)
+		}
+		return nil
 	}
 
-	message := tgbotapi.NewMessage(chatID, reply.Text)
-	if len(reply.Buttons) > 0 {
-		message.ReplyMarkup = inlineKeyboard(reply.Buttons)
-	}
-
-	if _, err := s.bot.Send(message); err != nil {
+	if _, err := s.bot.Send(buildMessage(chatID, reply)); err != nil {
 		return fmt.Errorf("send telegram message: %w", err)
 	}
 	return nil
 }
 
-func (s *TelegramSender) sendPhoto(chatID int64, reply presenter.Reply) error {
-	photo := tgbotapi.NewPhoto(chatID, tgbotapi.FileBytes{Name: "summary.png", Bytes: reply.Image})
+func buildMessage(chatID int64, reply presenter.Reply) tgbotapi.MessageConfig {
+	msg := tgbotapi.NewMessage(chatID, reply.Text)
+	msg.ReplyMarkup = replyMarkup(reply)
+	return msg
+}
+
+func buildPhoto(chatID int64, reply presenter.Reply) tgbotapi.PhotoConfig {
+	photo := tgbotapi.NewPhoto(chatID, tgbotapi.FileBytes{Name: "image.png", Bytes: reply.Image})
 	photo.Caption = reply.Text
+	photo.ReplyMarkup = replyMarkup(reply)
+	return photo
+}
+
+func replyMarkup(reply presenter.Reply) any {
 	if len(reply.Buttons) > 0 {
-		photo.ReplyMarkup = inlineKeyboard(reply.Buttons)
+		row := make([]tgbotapi.InlineKeyboardButton, 0, len(reply.Buttons))
+		for _, button := range reply.Buttons {
+			row = append(row, tgbotapi.NewInlineKeyboardButtonData(button.Label, button.Data))
+		}
+		return tgbotapi.NewInlineKeyboardMarkup(tgbotapi.NewInlineKeyboardRow(row...))
 	}
 
-	if _, err := s.bot.Send(photo); err != nil {
-		return fmt.Errorf("send telegram photo: %w", err)
+	if reply.ReplyPlaceHolder != "" {
+		return tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: reply.ReplyPlaceHolder}
 	}
+
 	return nil
 }
 

@@ -15,7 +15,6 @@ import (
 	"money-savior-telegram-bot/app/src/adapter/presenter"
 )
 
-// fakeTelegram answers the Bot API calls and records the parameters of each one.
 type fakeTelegram struct {
 	server *httptest.Server
 
@@ -180,5 +179,92 @@ func TestTelegramFailuresAreReturned(t *testing.T) {
 	telegram.failOnMethod("answerCallbackQuery")
 	if err := sender.AnswerCallback(context.Background(), "cb-1"); err == nil {
 		t.Error("AnswerCallback must return the Telegram error")
+	}
+}
+
+func TestBuildMessage_WithoutPlaceholderHasNoReplyMarkup(t *testing.T) {
+	msg := buildMessage(10, presenter.Reply{Text: "oi"})
+
+	if msg.ChatID != 10 || msg.Text != "oi" {
+		t.Errorf("unexpected message: %+v", msg)
+	}
+	if msg.ReplyMarkup != nil {
+		t.Errorf("expected no reply markup, got %v", msg.ReplyMarkup)
+	}
+}
+
+func TestBuildMessage_WithPlaceholderAsksForAReply(t *testing.T) {
+	msg := buildMessage(10, presenter.Reply{Text: "oi", ReplyPlaceHolder: "Cole aqui"})
+
+	markup, ok := msg.ReplyMarkup.(tgbotapi.ForceReply)
+	if !ok {
+		t.Fatalf("expected a ForceReply markup, got %T", msg.ReplyMarkup)
+	}
+	if !markup.ForceReply || markup.InputFieldPlaceholder != "Cole aqui" {
+		t.Errorf("unexpected markup: %+v", markup)
+	}
+}
+
+func TestBuildPhoto_UsesTheTextAsCaptionAndKeepsTheBytes(t *testing.T) {
+	photo := buildPhoto(10, presenter.Reply{Text: "legenda", Image: []byte{1, 2, 3}})
+
+	if photo.ChatID != 10 || photo.Caption != "legenda" {
+		t.Errorf("unexpected photo: %+v", photo)
+	}
+
+	file, ok := photo.File.(tgbotapi.FileBytes)
+	if !ok || len(file.Bytes) != 3 {
+		t.Errorf("expected the image bytes to be sent, got %#v", photo.File)
+	}
+	if photo.ReplyMarkup != nil {
+		t.Errorf("expected no reply markup, got %v", photo.ReplyMarkup)
+	}
+}
+
+func TestBuildPhoto_WithPlaceholderAsksForAReply(t *testing.T) {
+	photo := buildPhoto(10, presenter.Reply{
+		Text:             "legenda",
+		Image:            []byte{1},
+		ReplyPlaceHolder: "Cole seu código de convite",
+	})
+
+	markup, ok := photo.ReplyMarkup.(tgbotapi.ForceReply)
+	if !ok {
+		t.Fatalf("expected a ForceReply markup, got %T", photo.ReplyMarkup)
+	}
+	if markup.InputFieldPlaceholder != "Cole seu código de convite" {
+		t.Errorf("unexpected placeholder: %q", markup.InputFieldPlaceholder)
+	}
+}
+
+func TestBuildMessage_ButtonsTakePriorityOverTheReplyPlaceholder(t *testing.T) {
+	msg := buildMessage(10, presenter.Reply{
+		Text:             "oi",
+		ReplyPlaceHolder: "Cole aqui",
+		Buttons:          []presenter.Button{{Label: "OK", Data: "ok"}},
+	})
+
+	markup, ok := msg.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup)
+	if !ok {
+		t.Fatalf("expected an inline keyboard, got %T", msg.ReplyMarkup)
+	}
+	if len(markup.InlineKeyboard) != 1 || len(markup.InlineKeyboard[0]) != 1 {
+		t.Errorf("unexpected keyboard: %+v", markup.InlineKeyboard)
+	}
+}
+
+func TestBuildPhoto_KeepsTheButtonsInOneRow(t *testing.T) {
+	photo := buildPhoto(10, presenter.Reply{
+		Text:    "legenda",
+		Image:   []byte{1},
+		Buttons: []presenter.Button{{Label: "A", Data: "a"}, {Label: "B", Data: "b"}},
+	})
+
+	markup, ok := photo.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup)
+	if !ok {
+		t.Fatalf("expected an inline keyboard, got %T", photo.ReplyMarkup)
+	}
+	if len(markup.InlineKeyboard) != 1 || len(markup.InlineKeyboard[0]) != 2 {
+		t.Errorf("expected one row with two buttons: %+v", markup.InlineKeyboard)
 	}
 }
